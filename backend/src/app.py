@@ -14,6 +14,7 @@ Core analysis stays in the pure modules; this file only orchestrates them.
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import datetime
@@ -57,6 +58,13 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
         SECRET_KEY=os.environ.get("SECRET_KEY", "dev-secret"),
         MAX_CONTENT_LENGTH=int(os.environ.get("MAX_UPLOAD_MB", "16")) * 1024 * 1024,
         THRESHOLD=int(os.environ.get("ANALYSIS_THRESHOLD", "5")),
+        # Hourly decay of risk scores (default: 24h half-life); 0 disables decay.
+        RISK_DECAY_LAMBDA=threat_detector.validate_decay_lambda(
+            os.environ.get("RISK_DECAY_LAMBDA") or threat_detector.DEFAULT_DECAY_LAMBDA
+        ),
+        HONEYPOT_IPS=threat_detector.parse_honeypot_ips(
+            os.environ.get("HONEYPOT_IPS", "")
+        ),
         JSON_SORT_KEYS=False,
     )
 
@@ -135,7 +143,10 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
 
         events = log_parser.parse_text(text)
         threats = threat_detector.detect_threats(
-            events, threshold=app.config["THRESHOLD"]
+            events,
+            threshold=app.config["THRESHOLD"],
+            decay_lambda=app.config["RISK_DECAY_LAMBDA"],
+            honeypot_ips=app.config["HONEYPOT_IPS"],
         )
         alerts = alert_manager.process_alerts(threats)
         analysis = report_generator.build_summary(events, alerts)
@@ -203,6 +214,10 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
                 attempts = max(1, int(row.get("attempts") or 1))
             except (TypeError, ValueError):
                 attempts = 1
+            try:
+                risk_factors = json.loads(row.get("risk_factors") or "[]")
+            except (TypeError, ValueError):
+                risk_factors = []
             payload.append(
                 {
                     "id": row.get("id"),
@@ -214,6 +229,7 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
                     "details": row.get("details"),
                     "timestamp": row.get("timestamp"),
                     "risk_score": row.get("risk_score"),
+                    "risk_factors": risk_factors,
                     "attempts": attempts,
                 }
             )

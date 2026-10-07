@@ -6,6 +6,7 @@ dependency) so ``DB_PATH`` works for the CLI, the API and pytest alike.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from datetime import datetime
@@ -23,6 +24,7 @@ THREAT_COLUMNS = (
     "timestamp",
     "risk_score",
     "attempts",
+    "risk_factors",
 )
 
 SCHEMA = """
@@ -43,7 +45,8 @@ CREATE TABLE IF NOT EXISTS threats (
     details    TEXT,
     timestamp  TEXT,
     risk_score INTEGER DEFAULT 0,
-    attempts   INTEGER DEFAULT 1
+    attempts   INTEGER DEFAULT 1,
+    risk_factors TEXT
 );
 CREATE TABLE IF NOT EXISTS summary (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,6 +125,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(threats)")}
     if existing and "attempts" not in existing:
         conn.execute("ALTER TABLE threats ADD COLUMN attempts INTEGER DEFAULT 1")
+    if existing and "risk_factors" not in existing:
+        conn.execute("ALTER TABLE threats ADD COLUMN risk_factors TEXT")
 
 
 def init_db(db_path=None) -> str:
@@ -189,6 +194,7 @@ def insert_threats(threats: Iterable[Dict], db_path=None, conn=None) -> int:
                 threat.get("timestamp"),
                 int(threat.get("risk_score") or 0),
                 attempts,
+                json.dumps(threat.get("risk_factors") or []),
             )
         )
     return _write(
