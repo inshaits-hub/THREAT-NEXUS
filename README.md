@@ -1,4 +1,5 @@
-# Cybersecurity Log Analyzer
+# THREAT-NEXUS
+
 
 Senior project: a log-analysis platform that ingests raw server logs, detects
 threats with heuristic rules, and reports the results through both a REST API
@@ -135,3 +136,16 @@ Also available: `/api/v1/events`, `/api/v1/stats`, `/api/v1/health`.
 Read `backend/README.md` first — it documents every module, the threat rules,
 the database schema and the configuration options. Secrets and local state
 (`.env`, `instance/`, `reports/`, `.venv/`) stay out of Git via `.gitignore`.
+
+
+## Live alerts
+
+New threats are pushed to the dashboard in real time over Socket.IO
+(`threat_alert` event). The Threats page shows a **Live / Disconnected**
+badge under the title and updates without a refresh.
+
+- Start the API with `py src\app.py` (uses `socketio.run`).
+- In Docker the API runs gunicorn with **one** worker and many threads;
+  do not raise `WEB_CONCURRENCY` above 1 or live alerts will be lost.
+- nginx proxies `/socket.io/` with WebSocket upgrade headers.
+- Mock mode (`?mock=1`) never opens a socket.

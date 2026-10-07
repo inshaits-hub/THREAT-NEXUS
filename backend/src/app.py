@@ -9,17 +9,22 @@ Endpoints (base URL ``http://localhost:5000``):
 ``GET  /api/v1/export/report``  downloadable HTML/JSON report from ``reports/``
 ==========================  ==============================================
 
+Real-time: every threat saved by ``/api/v1/upload`` is also pushed to
+connected dashboards as a Socket.IO ``threat_alert`` event.
+
 Core analysis stays in the pure modules; this file only orchestrates them.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_file
+from flask_socketio import SocketIO
 
 try:  # package import
     from . import (
@@ -38,17 +43,63 @@ except ImportError:  # script import (``python src/app.py``)
     import report_generator
     import threat_detector
 
+logger = logging.getLogger(__name__)
+
 ALLOWED_EXTENSIONS = {".log", ".txt"}
 EXPORT_FORMATS = {"html", "json"}
 SEVERITY_QUERY_VALUES = set(alert_manager.SEVERITY_RANK) | set(
     alert_manager.SEVERITY_ALIASES
 )
 
+# Real-time channel. "threading" mode needs no extra server library and works
+# on Windows, with the Flask dev server and with gunicorn's gthread worker.
+# CORS is open because the dashboard and API can live on different origins.
+socketio = SocketIO(cors_allowed_origins="*", async_mode="threading")
+
 
 def _error(message: str, status: int, **extra):
     payload = {"status": "error", "message": message}
     payload.update(extra)
     return jsonify(payload), status
+
+
+def _serialize_threat(row: dict) -> dict:
+    """Shape a stored threat / fresh alert the way the dashboard expects it."""
+    canonical = alert_manager.normalize_severity(
+        row.get("severity"), row.get("risk_score")
+    )
+    try:
+        attempts = max(1, int(row.get("attempts") or 1))
+    except (TypeError, ValueError):
+        attempts = 1
+    timestamp = row.get("timestamp")
+    if hasattr(timestamp, "isoformat"):
+        timestamp = timestamp.isoformat(sep=" ", timespec="seconds")
+    return {
+        "id": row.get("id"),
+        "type": row.get("type"),
+        "ip": row.get("ip"),
+        "severity": canonical,
+        "badge": alert_manager.badge_for(canonical),
+        "title": alert_manager.title_for(row.get("type")),
+        "details": row.get("details"),
+        "timestamp": timestamp,
+        "risk_score": row.get("risk_score"),
+        "attempts": attempts,
+    }
+
+
+def _emit_alerts(alerts) -> None:
+    """Push each new alert to every connected dashboard.
+
+    A failed push must never fail the upload itself: the data is already
+    committed, so errors here are logged and swallowed.
+    """
+    for alert in alerts:
+        try:
+            socketio.emit("threat_alert", _serialize_threat(alert))
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not emit threat_alert")
 
 
 def create_app(db_path=None, reports_dir=None) -> Flask:
@@ -70,6 +121,9 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
         else database.resolve_path(os.environ.get("REPORTS_DIR", "reports"))
     )
     reports_path.mkdir(parents=True, exist_ok=True)
+
+    # Attach the real-time layer to this app.
+    socketio.init_app(app)
 
     # ------------------------------------------------------------------ CORS
     @app.after_request
@@ -153,6 +207,9 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
         finally:
             conn.close()
 
+        # Data is safely stored; now tell every open dashboard about it.
+        _emit_alerts(alerts)
+
         auth_stats = auth_analyzer.analyze_authentication(events)
         riskiest = analysis["top_risk_ips"][0] if analysis["top_risk_ips"] else None
 
@@ -194,30 +251,7 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
             severity = alert_manager.normalize_severity(token)
 
         rows = database.get_threats(ip=ip, severity=severity, limit=limit)
-        payload = []
-        for row in rows:
-            canonical = alert_manager.normalize_severity(
-                row.get("severity"), row.get("risk_score")
-            )
-            try:
-                attempts = max(1, int(row.get("attempts") or 1))
-            except (TypeError, ValueError):
-                attempts = 1
-            payload.append(
-                {
-                    "id": row.get("id"),
-                    "type": row.get("type"),
-                    "ip": row.get("ip"),
-                    "severity": canonical,
-                    "badge": alert_manager.badge_for(canonical),
-                    "title": alert_manager.title_for(row.get("type")),
-                    "details": row.get("details"),
-                    "timestamp": row.get("timestamp"),
-                    "risk_score": row.get("risk_score"),
-                    "attempts": attempts,
-                }
-            )
-        return jsonify(payload)
+        return jsonify([_serialize_threat(row) for row in rows])
 
     # --------------------------------------------------------------- export
     @app.get("/api/v1/export/report")
@@ -279,8 +313,11 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(
+    # socketio.run (not app.run) so WebSocket connections are served too.
+    socketio.run(
+        app,
         host=os.environ.get("HOST", "127.0.0.1"),
         port=int(os.environ.get("PORT", "5000")),
         debug=os.environ.get("FLASK_ENV", "development") == "development",
+        allow_unsafe_werkzeug=True,
     )
