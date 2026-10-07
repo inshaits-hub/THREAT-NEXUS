@@ -102,7 +102,7 @@ Set `baseUrl` and `useMock` in the same object to override both.
 ## Folder layout
 
 ```text
-Cybersecurity Log Analyzer/
+THREAT-NEXUS/
 ├── backend/                # see backend/README.md for the full map
 │   ├── src/                # parser, analyzers, threat engine, alerts, reports, API, CLI
 │   ├── tests/              # pytest suite
@@ -139,6 +139,7 @@ the database schema and the configuration options. Secrets and local state
 
 
 ## Live alerts
+
 
 New threats are pushed to the dashboard in real time over Socket.IO
 (`threat_alert` event). The Threats page shows a **Live / Disconnected**

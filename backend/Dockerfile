@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# Cybersecurity Log Analyzer - backend image.
+# THREAT-NEXUS - backend image.
 #
 #   docker build -t insha-backend .
 #   docker run --rm -p 5000:5000 insha-backend
