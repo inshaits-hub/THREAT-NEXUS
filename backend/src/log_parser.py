@@ -30,6 +30,7 @@ __all__ = [
     "parse_file",
     "parse_timestamp",
     "event_time",
+    "event_destination",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -97,6 +98,7 @@ _AUTH_RULES = [
 ]
 
 _FIREWALL_SRC_RE = re.compile(r"\bSRC=(?P<ip>[0-9A-Fa-f:.]+)")
+_FIREWALL_DST_RE = re.compile(r"\bDST=(?P<ip>[0-9A-Fa-f:.]+)")
 _FIREWALL_DPT_RE = re.compile(r"\bDPT=(?P<port>\d+)")
 _FIREWALL_RE = re.compile(r"\bUFW BLOCK\b|\bDROP\b|iptables", re.IGNORECASE)
 
@@ -169,6 +171,14 @@ def event_time(event: Dict) -> Optional[datetime]:
     if not isinstance(event, dict):
         return None
     return parse_timestamp(event.get("timestamp"))
+
+
+def event_destination(event: Dict) -> Optional[str]:
+    """Destination IP (``DST=``) of a firewall record, or ``None``."""
+    if not isinstance(event, dict) or event.get("action") != "firewall_block":
+        return None
+    match = _FIREWALL_DST_RE.search(str(event.get("raw_line") or ""))
+    return match.group("ip") if match else None
 
 
 # --------------------------------------------------------------------------- #

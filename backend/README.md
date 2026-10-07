@@ -124,7 +124,7 @@ python src/app.py             # http://localhost:5000  (HOST/PORT come from .env
 |--------|----------|-------------|
 | GET | `/api/v1/summary` | `{total_events, total_threats, critical_threats, unique_ips}` |
 | POST | `/api/v1/upload` | multipart `file` (`.log`/`.txt`) → parse → detect → store |
-| GET | `/api/v1/threats?ip=&severity=` | stored alerts (`severity=CRITICAL\|HIGH\|MED\|MEDIUM\|LOW`), each with `badge`, `title`, `risk_score`, `attempts` |
+| GET | `/api/v1/threats?ip=&severity=` | stored alerts (`severity=CRITICAL\|HIGH\|MED\|MEDIUM\|LOW`), each with `badge`, `title`, `risk_score`, `risk_factors`, `attempts` |
 | GET | `/api/v1/export/report?format=` | `html` or `json`, served as a download from `reports/` |
 | GET | `/api/v1/events?limit=&ip=` | recent parsed events (live table) |
 | GET | `/api/v1/stats` | severity distribution, top risk IPs, upload history |
@@ -211,6 +211,38 @@ to 100.
 overlapping 120s windows are merged into one alert with an `occurrences` count,
 the highest severity/risk seen, and a structured `payload` for the frontend.
 
+## 5b. Dynamic risk scoring (0–100)
+
+Each IP's `risk_score` is an integer from 0 to 100 (`threat_detector.py`):
+
+```
+base  = min(100, frequency_points + severity_points + honeypot_bonus)
+score = round(base * exp(-lambda * hours_since_last_event))
+```
+
+* **Frequency points** — failed logins (≤ +25) and exploit requests (≤ +15).
+* **Severity points** — the rule weights listed above (a rule type counts once per IP).
+* **Honeypot bonus** — **+20**, once per source IP, when any of its firewall
+  events targets a configured honeypot *destination* IP (`DST=` in the raw
+  line). An IP merely appearing in `HONEYPOT_IPS` as a source gets nothing.
+* The score is capped at 100 **before** decay; decay can only lower it.
+* **Time decay** — `lambda` is per hour. The default is `ln(2)/24` ≈ 0.0289
+  (a 24-hour half-life). `lambda = 0` disables decay; negative, NaN or infinite
+  values are rejected (`ValueError` in the API, exit code 2 in the CLI).
+* **Reference time** — hours are measured from the IP's last event to the
+  **newest real timestamp in the analyzed dataset**, *not* the wall clock, so
+  old or demo logs do not decay to zero. Events with no usable timestamp
+  (e.g. header-less lines) are not decayed.
+* An IP whose score decays to 0 is kept with `risk_score: 0` and its factors.
+
+**Explainability** — every threat/alert carries `risk_factors`, a list of
+`{factor, points, detail}` entries (`rule:<TYPE>`, `failed_logins`,
+`exploit_requests`, `honeypot`, `capped_at_100` and `time_decay`), also returned
+by `GET /api/v1/threats`.
+
+**Configuration** — `RISK_DECAY_LAMBDA` / `--decay-lambda` and `HONEYPOT_IPS`
+(comma separated) / `--honeypot-ips`; see [Configuration](#9-configuration-env).
+
 ## 6. Database (SQLite)
 
 Auto-initialized by `init_db()`; path from `DB_PATH` (default
@@ -272,6 +304,8 @@ DB_PATH=instance/logs.db     # SQLite location (relative to backend/)
 REPORTS_DIR=reports          # generated reports
 MAX_UPLOAD_MB=16             # POST /api/v1/upload cap
 ANALYSIS_THRESHOLD=5         # brute-force rule threshold
+RISK_DECAY_LAMBDA=           # risk decay per hour (empty = 24h half-life, 0 = off)
+HONEYPOT_IPS=                # honeypot destination IPs; sources hitting them get +20 risk
 HOST=127.0.0.1  PORT=5000    # API bind address
 FLASK_ENV=development        # development = reloader + Werkzeug debugger
 SECRET_KEY=...               # Flask secret

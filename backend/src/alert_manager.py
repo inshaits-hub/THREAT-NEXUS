@@ -130,6 +130,7 @@ def _build_alert(item: Dict, dedupe_window: int = DEDUPE_WINDOW_SECONDS) -> Dict
         "first_seen": first_seen,
         "last_seen": last_seen,
         "risk_score": item["risk_score"],
+        "risk_factors": item["risk_factors"],
         "occurrences": occurrences,
         "attempts": attempts,
         "payload": {
@@ -139,6 +140,7 @@ def _build_alert(item: Dict, dedupe_window: int = DEDUPE_WINDOW_SECONDS) -> Dict
             "badge": badge,
             "ip": item["ip"],
             "risk_score": item["risk_score"],
+            "risk_factors": item["risk_factors"],
             "occurrences": occurrences,
             "attempts": attempts,
             "window": {
@@ -176,6 +178,7 @@ def process_alerts(
             "details": threat.get("details") or "",
             "timestamp": threat.get("timestamp"),
             "risk_score": risk_score,
+            "risk_factors": list(threat.get("risk_factors") or []),
             "occurrences": 1,
             "attempts": attempts,
             "_dt": moment,
@@ -205,6 +208,8 @@ def process_alerts(
             if mergeable:
                 current["occurrences"] += item["occurrences"]
                 current["attempts"] += item["attempts"]
+                if item["risk_score"] > current["risk_score"]:
+                    current["risk_factors"] = item["risk_factors"]
                 current["risk_score"] = max(current["risk_score"], item["risk_score"])
                 if SEVERITY_RANK[item["severity"]] < SEVERITY_RANK[current["severity"]]:
                     current["severity"] = item["severity"]

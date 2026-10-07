@@ -34,6 +34,8 @@ from src import (  # noqa: E402  (path shim above must run first)
     threat_detector,
 )
 
+from src.main import decay_lambda_arg  # noqa: E402
+
 DEFAULT_LOG = BACKEND_ROOT / "samples" / "demo.log"
 
 
@@ -60,6 +62,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=int(os.environ.get("ANALYSIS_THRESHOLD", "5")),
         help="Brute-force threshold (default: 5).",
+    )
+    parser.add_argument(
+        "--decay-lambda",
+        type=decay_lambda_arg,
+        # A string default is run through type by argparse, so an invalid
+        # RISK_DECAY_LAMBDA is reported as a clean usage error (exit 2) too.
+        default=os.environ.get("RISK_DECAY_LAMBDA")
+        or str(threat_detector.DEFAULT_DECAY_LAMBDA),
+        help="Risk score decay per hour (default: ln2/24, a 24h half-life; 0 = no decay).",
+    )
+    parser.add_argument(
+        "--honeypot-ips",
+        default=os.environ.get("HONEYPOT_IPS", ""),
+        help="Comma separated honeypot destination IPs; sources targeting them get +20 risk (default: HONEYPOT_IPS or none).",
     )
     parser.add_argument(
         "--fresh",
@@ -96,7 +112,12 @@ def main(argv=None) -> int:
         database.set_db_path(db_path)
     database.init_db()
 
-    threats = threat_detector.detect_threats(events, threshold=args.threshold)
+    threats = threat_detector.detect_threats(
+        events,
+        threshold=args.threshold,
+        decay_lambda=args.decay_lambda,
+        honeypot_ips=args.honeypot_ips,
+    )
     alerts = alert_manager.process_alerts(threats)
     summary = report_generator.build_summary(events, alerts)
     auth_stats = auth_analyzer.analyze_authentication(events)

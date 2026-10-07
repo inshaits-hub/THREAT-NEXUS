@@ -32,6 +32,7 @@
   var riskMaxEl = document.getElementById("detail-risk-max");
   var riskBar = document.getElementById("detail-risk-bar");
   var maliciousTag = document.getElementById("detail-malicious-tag");
+  var riskFactorsEl = document.getElementById("detail-risk-factors");
 
   var copyButton = document.getElementById("detail-copy-button");
   var exportButton = document.getElementById("detail-export-button");
@@ -147,6 +148,7 @@
     fieldsEl.classList.add("hidden");
     footerEl.classList.add("hidden");
     logLinesSection.classList.add("hidden");
+    dom.clear(riskFactorsEl);
     currentSelectedItem = null;
   }
 
@@ -308,6 +310,85 @@
       });
   }
 
+  // Backend factor names look like "rule:SSH_BRUTE_FORCE", "failed_logins",
+  // "time_decay"; turn them into readable labels.
+  function formatFactorName(name) {
+    var text = String(name == null ? "" : name).replace(/^rule:/, "").replace(/_/g, " ").trim();
+    return text ? text.charAt(0).toUpperCase() + text.slice(1).toLowerCase() : "Unknown factor";
+  }
+
+  function formatFactorPoints(points) {
+    var value = Number(points);
+    if (!isFinite(value)) {
+      return "0";
+    }
+    return (value > 0 ? "+" : value < 0 ? "-" : "") + format.formatNumber(Math.abs(value));
+  }
+
+  function fillRiskFactors(factors) {
+    dom.clear(riskFactorsEl);
+
+    var list = Array.isArray(factors)
+      ? factors.filter(function (f) {
+          return f && typeof f === "object";
+        })
+      : [];
+
+    var wrapper = document.createElement("div");
+    wrapper.className = "px-5 pb-5";
+
+    var heading = document.createElement("h3");
+    heading.className = "text-[12.5px] font-semibold text-on-surface mb-2";
+    heading.textContent = "Risk factors";
+    wrapper.appendChild(heading);
+
+    if (list.length === 0) {
+      var none = document.createElement("div");
+      none.className = "text-[12px] text-secondary";
+      none.textContent = "No contributing factors available";
+      wrapper.appendChild(none);
+      riskFactorsEl.appendChild(wrapper);
+      return;
+    }
+
+    var box = document.createElement("div");
+    box.className = "rounded-lg border border-outline-variant overflow-hidden";
+
+    list.forEach(function (factor, index) {
+      var points = Number(factor.points) || 0;
+
+      var row = document.createElement("div");
+      row.className =
+        "flex items-start justify-between gap-3 px-3 py-2 text-[12.5px]" +
+        (index < list.length - 1 ? " border-b border-surface-container" : "");
+
+      var left = document.createElement("div");
+      left.className = "min-w-0";
+      var name = document.createElement("div");
+      name.className = "font-medium text-on-surface";
+      name.textContent = formatFactorName(factor.factor);
+      left.appendChild(name);
+      if (factor.detail) {
+        var detail = document.createElement("div");
+        detail.className = "text-[11.5px] text-secondary break-words";
+        detail.textContent = String(factor.detail);
+        left.appendChild(detail);
+      }
+
+      var pts = document.createElement("div");
+      pts.className =
+        "mono tnum font-semibold shrink-0 " + (points < 0 ? "text-secondary" : "text-sev-critical-text");
+      pts.textContent = formatFactorPoints(points);
+
+      row.appendChild(left);
+      row.appendChild(pts);
+      box.appendChild(row);
+    });
+
+    wrapper.appendChild(box);
+    riskFactorsEl.appendChild(wrapper);
+  }
+
   function showFilledPanel(item) {
     emptyBlock.classList.add("hidden");
     headerEl.classList.remove("hidden");
@@ -330,6 +411,8 @@
     riskMaxEl.textContent = format.formatNumber(config.RISK_SCORE_MAX);
     riskBar.style.width = Math.min(100, Math.max(0, (riskScore / config.RISK_SCORE_MAX) * 100)) + "%";
     maliciousTag.classList.toggle("hidden", riskScore < config.MALICIOUS_SCORE_THRESHOLD);
+
+    fillRiskFactors(item.risk_factors);
 
     currentSelectedItem = item;
 
