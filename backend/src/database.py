@@ -20,10 +20,15 @@ THREAT_COLUMNS = (
     "ip",
     "severity",
     "details",
+    "path",
     "timestamp",
     "risk_score",
     "attempts",
 )
+
+#: Newest threats kept on disk; older rows are pruned so endless decoy
+#: traffic cannot fill the database (see ``prune_threats``).
+THREAT_RETENTION = 50_000
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS logs (
@@ -41,6 +46,7 @@ CREATE TABLE IF NOT EXISTS threats (
     ip         TEXT,
     severity   TEXT,
     details    TEXT,
+    path       TEXT,
     timestamp  TEXT,
     risk_score INTEGER DEFAULT 0,
     attempts   INTEGER DEFAULT 1
@@ -122,6 +128,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(threats)")}
     if existing and "attempts" not in existing:
         conn.execute("ALTER TABLE threats ADD COLUMN attempts INTEGER DEFAULT 1")
+    if existing and "path" not in existing:
+        conn.execute("ALTER TABLE threats ADD COLUMN path TEXT")
 
 
 def init_db(db_path=None) -> str:
@@ -186,6 +194,7 @@ def insert_threats(threats: Iterable[Dict], db_path=None, conn=None) -> int:
                 threat.get("ip"),
                 threat.get("severity"),
                 threat.get("details"),
+                threat.get("path"),
                 threat.get("timestamp"),
                 int(threat.get("risk_score") or 0),
                 attempts,
@@ -308,6 +317,46 @@ def get_previous_summaries(limit: int = 10, db_path=None, conn=None) -> List[Dic
             "SELECT * FROM summary ORDER BY id DESC LIMIT ?", (int(limit),)
         ).fetchall()
         return [dict(row) for row in rows]
+    finally:
+        if own:
+            connection.close()
+
+
+def get_threat(threat_id, db_path=None, conn=None) -> Optional[Dict]:
+    """Single threat row by id, or ``None`` when it does not exist."""
+    own = conn is None
+    connection = conn or get_connection(db_path)
+    try:
+        row = connection.execute(
+            "SELECT * FROM threats WHERE id = ?", (int(threat_id),)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        if own:
+            connection.close()
+
+
+def prune_threats(max_rows: int = THREAT_RETENTION, db_path=None, conn=None) -> int:
+    """Keep only the newest ``max_rows`` threats; returns rows deleted.
+
+    Retention backstop so a flood of honeypot hits (or repeated uploads)
+    cannot grow the database without bound.
+    """
+    own = conn is None
+    connection = conn or get_connection(db_path)
+    try:
+        row = connection.execute("SELECT COUNT(*) AS n FROM threats").fetchone()
+        total = int(row["n"])
+        if total <= max_rows:
+            return 0
+        cur = connection.execute(
+            "DELETE FROM threats WHERE id NOT IN "
+            "(SELECT id FROM threats ORDER BY id DESC LIMIT ?)",
+            (int(max_rows),),
+        )
+        if own:
+            connection.commit()
+        return int(cur.rowcount or 0)
     finally:
         if own:
             connection.close()
