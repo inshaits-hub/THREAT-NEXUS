@@ -21,6 +21,10 @@ try:  # package import
     from .log_parser import parse_timestamp
 except ImportError:  # script import (``python src/main.py``)
     from log_parser import parse_timestamp
+  try:
+    from .copilot import generate_copilot_output
+except ImportError:
+    from copilot import generate_copilot_output
 
 SEVERITY_RANK = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 BADGE_COLORS = {
@@ -132,6 +136,7 @@ def _build_alert(item: Dict, dedupe_window: int = DEDUPE_WINDOW_SECONDS) -> Dict
         "risk_score": item["risk_score"],
         "occurrences": occurrences,
         "attempts": attempts,
+        "copilot": generate_copilot_output({"type": item["type"], "ip": item["ip"]}),
         "payload": {
             "rule": item["type"],
             "title": title,
