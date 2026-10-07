@@ -73,7 +73,7 @@
     '<div class="rail-mark"><span class="material-symbols-outlined" data-icon="shield" ' +
     'style="font-variation-settings:\'FILL\' 1;">shield</span></div>' +
     '<div class="min-w-0">' +
-    '<div class="rail-title truncate">Log Analyzer</div>' +
+    '<div class="rail-title truncate">THREAT-NEXUS</div>' +
     '<div class="rail-sub truncate">Security Ops</div>' +
     "</div>" +
     "</div>";
@@ -98,7 +98,7 @@
     '<span class="material-symbols-outlined" data-icon="menu">menu</span>' +
     "</button>" +
     '<div class="min-w-0 lg:hidden"><div class="text-[13px] font-semibold text-on-surface leading-tight" ' +
-    'id="app-topbar-title">Log Analyzer</div></div>' +
+    'id="app-topbar-title">THREAT-NEXUS</div></div>' +
     '<div class="topbar-tabs" id="app-topbar-tabs"></div>' +
     '<div class="ml-auto flex items-center gap-2 shrink-0">' +
     '<button class="btn btn-primary btn-sm hidden sm:inline-flex" id="app-upload-button" type="button">' +

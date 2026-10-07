@@ -1,4 +1,4 @@
-# Cybersecurity Log Analyzer — Backend
+# THREAT-NEXUS — Backend
 
 Production-ready backend for the CS senior project. It ingests raw log files,
 normalizes them with regex, runs a heuristic threat engine over the events,
