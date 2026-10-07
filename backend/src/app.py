@@ -18,6 +18,7 @@ Core analysis stays in the pure modules; this file only orchestrates them.
 from __future__ import annotations
 
 import atexit
+import logging
 import os
 import sys
 import uuid
@@ -26,12 +27,6 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request, send_file
 from flask_socketio import SocketIO
-
-try:  # Socket.IO is a declared dependency but the HTTP API must keep
-    # working (spec §4.3 error handling) even if it is missing.
-    from flask_socketio import SocketIO
-except ImportError:  # pragma: no cover - exercised only in minimal envs
-    SocketIO = None
 
 try:  # package import
     from . import (
@@ -68,8 +63,12 @@ SEVERITY_QUERY_VALUES = set(alert_manager.SEVERITY_RANK) | set(
 
 # Real-time channel. "threading" mode needs no extra server library and works
 # on Windows, with the Flask dev server and with gunicorn's gthread worker.
-# CORS is open because the dashboard and API can live on different origins.
-socketio = SocketIO(cors_allowed_origins="*", async_mode="threading")
+# CORS defaults to open because the dashboard and API can live on different
+# origins; set SOCKETIO_ALLOWED_ORIGINS to restrict it.
+socketio = SocketIO(
+    cors_allowed_origins=os.environ.get("SOCKETIO_ALLOWED_ORIGINS") or "*",
+    async_mode="threading",
+)
 
 
 def _error(message: str, status: int, **extra):
@@ -108,16 +107,9 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
     reports_path.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------- Socket.IO
-    # Live streaming: every new alert becomes a 'threat_alert' event.
-    socketio = None
-    if SocketIO is not None:
-        socketio = SocketIO(
-            app,
-            async_mode="threading",
-            cors_allowed_origins=os.environ.get("SOCKETIO_ALLOWED_ORIGINS") or "*",
-            logger=False,
-            engineio_logger=False,
-        )
+    # Single module-level instance (shared by the app factory and tests);
+    # create_app attaches it below with init_app. Every new alert becomes a
+    # 'threat_alert' event.
     app.extensions["socketio"] = socketio
 
     def _emit_threat(threat: dict) -> None:
