@@ -291,18 +291,37 @@
       });
   });
 
-  updateSortIcon();
+    var refreshTimer = null;
 
-  api.getThreats()
-    .then(function (data) {
-      allThreats = data;
-      countEl.textContent = format.formatNumber(allThreats.length);
-      render();
-    })
-    .catch(function (error) {
-      console.error(error);
-      threatsLoadFailed = true;
-      countEl.textContent = "-";
-      renderLoadFailure();
-    });
+  // silent = live refresh: on failure keep showing the table we already have.
+  function loadThreats(silent) {
+    return api.getThreats()
+      .then(function (data) {
+        allThreats = data;
+        threatsLoadFailed = false;
+        countEl.textContent = format.formatNumber(allThreats.length);
+        render();
+      })
+      .catch(function (error) {
+        console.error(error);
+        if (silent) {
+          return;
+        }
+        threatsLoadFailed = true;
+        countEl.textContent = "-";
+        renderLoadFailure();
+      });
+  }
+
+  // A whole upload can emit dozens of alerts within milliseconds; wait for the
+  // burst to settle and reload the list once.
+  window.addEventListener("threat-alert", function () {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(function () {
+      loadThreats(true);
+    }, 300);
+  });
+
+  updateSortIcon();
+  loadThreats(false);
 })();
