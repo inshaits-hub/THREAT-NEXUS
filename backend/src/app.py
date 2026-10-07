@@ -9,6 +9,9 @@ Endpoints (base URL ``http://localhost:5000``):
 ``GET  /api/v1/export/report``  downloadable HTML/JSON report from ``reports/``
 ==========================  ==============================================
 
+Real-time: every threat saved by ``/api/v1/upload`` is also pushed to
+connected dashboards as a Socket.IO ``threat_alert`` event.
+
 Core analysis stays in the pure modules; this file only orchestrates them.
 """
 
@@ -22,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_file
+from flask_socketio import SocketIO
 
 try:  # Socket.IO is a declared dependency but the HTTP API must keep
     # working (spec §4.3 error handling) even if it is missing.
@@ -54,11 +58,18 @@ except ImportError:  # script import (``python src/app.py``)
     import ssh_decoy
     import threat_detector
 
+logger = logging.getLogger(__name__)
+
 ALLOWED_EXTENSIONS = {".log", ".txt"}
 EXPORT_FORMATS = {"html", "json"}
 SEVERITY_QUERY_VALUES = set(alert_manager.SEVERITY_RANK) | set(
     alert_manager.SEVERITY_ALIASES
 )
+
+# Real-time channel. "threading" mode needs no extra server library and works
+# on Windows, with the Flask dev server and with gunicorn's gthread worker.
+# CORS is open because the dashboard and API can live on different origins.
+socketio = SocketIO(cors_allowed_origins="*", async_mode="threading")
 
 
 def _error(message: str, status: int, **extra):
@@ -140,6 +151,8 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
 
     # The decoy blueprint looks this up per request (spec 4.4).
     app.extensions["threat_notifier"] = _emit_threat
+    # Attach the real-time layer to this app.
+    socketio.init_app(app)
 
     # ------------------------------------------------------------------ CORS
     @app.after_request

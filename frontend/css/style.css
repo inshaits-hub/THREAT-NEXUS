@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Log Analyzer - base styles + shared component layer
+   THREAT-NEXUS - base styles + shared component layer
    --------------------------------------------------------------------------
    Tailwind utilities are injected by the Play CDN *after* this file, so a
    utility class on an element beats the component class on the same element.
