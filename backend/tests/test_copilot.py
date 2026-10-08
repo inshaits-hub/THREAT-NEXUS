@@ -157,6 +157,50 @@ def test_build_playbook_shape():
 
 
 # ---------------------------------------------------------------------------
+# Compatibility wrapper (old barira_dev API): generate_copilot_output
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("threat_type", KNOWN_TYPES)
+def test_wrapper_has_explanation_and_remediation_for_each_type(threat_type):
+    out = copilot.generate_copilot_output({"type": threat_type, "ip": "10.0.0.5"})
+    assert out["explanation"]
+    assert out["remediation"]
+
+
+def test_wrapper_remediation_has_reviewable_command():
+    out = copilot.generate_copilot_output({"type": "SSH_BRUTE_FORCE", "ip": "10.0.0.5"})
+    assert any(
+        step.startswith("sudo ufw deny from 10.0.0.5") for step in out["remediation"]
+    )
+
+
+def test_wrapper_never_auto_applies():
+    out = copilot.generate_copilot_output({"type": "PORT_SCAN", "ip": "10.0.0.5"})
+    assert out["auto_applied"] is False
+
+
+def test_wrapper_accepts_source_ip_key():
+    out = copilot.generate_copilot_output(
+        {"type": "PORT_SCAN", "source_ip": "10.0.0.5"}
+    )
+    assert "10.0.0.5" in out["explanation"]
+    assert any("10.0.0.5" in step for step in out["remediation"])
+
+
+def test_wrapper_unknown_type_still_explains():
+    out = copilot.generate_copilot_output({"type": "WEIRD", "ip": "10.0.0.5"})
+    assert "10.0.0.5" in out["explanation"]
+
+
+def test_wrapper_malicious_ip_is_rejected():
+    out = copilot.generate_copilot_output(
+        {"type": "SSH_BRUTE_FORCE", "ip": "1.1.1.1; rm -rf /"}
+    )
+    assert all("rm -rf" not in step for step in out["remediation"])
+    assert any("<ATTACKER_IP>" in step for step in out["remediation"])
+
+
+# ---------------------------------------------------------------------------
 # API surface
 # ---------------------------------------------------------------------------
 

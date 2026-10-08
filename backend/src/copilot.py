@@ -29,7 +29,13 @@ try:  # package import
 except ImportError:  # script import (``python src/main.py``)
     from alert_manager import normalize_severity, title_for
 
-__all__ = ["analyze", "explain", "remediate", "build_playbook"]
+__all__ = [
+    "analyze",
+    "explain",
+    "remediate",
+    "build_playbook",
+    "generate_copilot_output",
+]
 
 #: Each rule type gets reasoning + playbook steps + command *templates*.
 #: ``{ip}`` is filled only after validation (see ``_safe_ip``).
@@ -186,8 +192,6 @@ _RULES = {
     },
 }
 
-_UFW_COMMAND_RE = None  # built lazily to keep the module import cheap
-
 
 def _rule_for(threat_type) -> dict:
     return _RULES.get(str(threat_type or "UNKNOWN"), _RULES["UNKNOWN"])
@@ -210,19 +214,36 @@ def _first_match_ip(threat: dict) -> Optional[str]:
     """Pull a candidate IP out of free-text details (best effort)."""
     details = str(threat.get("details") or "")
     for token in re.findall(r"\b[0-9A-Fa-f:.]{2,45}\b", details):
-        if _safe_ip(token):
-            return token
+        safe = _safe_ip(token)
+        if safe:
+            return safe
     return None
+
+
+def _resolve_ip(threat: dict) -> Optional[str]:
+    """Single source of truth for the alert's IP.
+
+    * ``ip`` (or ``source_ip``) present and valid -> use it.
+    * present but invalid -> ``None``; hostile input is never "repaired"
+      by guessing another address from the details text.
+    * absent -> best-effort IP found in the free-text details.
+
+    Used by analyze/explain/remediate so all three stages agree on which
+    address they are talking about.
+    """
+    raw = threat.get("ip") or threat.get("source_ip")
+    if raw:
+        return _safe_ip(raw)
+    return _first_match_ip(threat)
 
 
 def analyze(threat: dict) -> dict:
     """Stage 1 - identify attack type, IP, evidence and severity."""
     threat_type = str(threat.get("type") or "UNKNOWN")
-    ip = _safe_ip(threat.get("ip")) or _first_match_ip(threat)
     return {
         "attack_type": threat_type,
         "title": title_for(threat_type),
-        "ip": ip,
+        "ip": _resolve_ip(threat),
         "path": threat.get("path") or None,
         "evidence": str(threat.get("details") or threat.get("raw_line") or ""),
         "severity": normalize_severity(
@@ -234,7 +255,7 @@ def analyze(threat: dict) -> dict:
 def explain(threat: dict) -> str:
     """Stage 2 - plain-English reasoning for the alert."""
     rule = _rule_for(threat.get("type"))
-    ip = _safe_ip(threat.get("ip")) or "an unresolved source"
+    ip = _resolve_ip(threat) or "an unresolved source"
     try:
         attempts = max(1, int(threat.get("attempts") or 1))
     except (TypeError, ValueError):
@@ -264,8 +285,8 @@ def remediate(threat: dict) -> dict:
     rule = _rule_for(threat.get("type"))
     warnings: List[str] = []
 
-    raw_ip = threat.get("ip")
-    ip = _safe_ip(raw_ip)
+    raw_ip = threat.get("ip") or threat.get("source_ip")
+    ip = _resolve_ip(threat)
     if ip is None:
         if raw_ip:
             warnings.append(
@@ -299,4 +320,19 @@ def build_playbook(threat: dict) -> dict:
         "analysis": analyze(threat),
         "explanation": explain(threat),
         "playbook": remediate(threat),
+    }
+
+
+def generate_copilot_output(alert: dict) -> Dict[str, object]:
+    """Compatibility wrapper for the old ``barira_dev`` API.
+
+    Returns the flat shape ``{explanation, remediation, auto_applied}``
+    on top of the Module 7 engine. New code should call
+    :func:`build_playbook` instead. Still recommendation-only.
+    """
+    playbook = remediate(alert)
+    return {
+        "explanation": explain(alert),
+        "remediation": playbook["steps"] + playbook["commands"],
+        "auto_applied": False,
     }
