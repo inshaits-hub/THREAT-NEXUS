@@ -150,3 +150,4 @@ badge under the title and updates without a refresh.
   do not raise `WEB_CONCURRENCY` above 1 or live alerts will be lost.
 - nginx proxies `/socket.io/` with WebSocket upgrade headers.
 - Mock mode (`?mock=1`) never opens a socket.
+-testing pull request
