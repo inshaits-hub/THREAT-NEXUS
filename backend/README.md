@@ -1,3 +1,5 @@
+These are the changes just for lab task 
+
 # THREAT-NEXUS — Backend
 
 Production-ready backend for the CS senior project. It ingests raw log files,
