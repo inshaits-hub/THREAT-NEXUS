@@ -90,7 +90,7 @@ Typical output:
 
 ```
 ============================================================================
-  CYBERSECURITY LOG ANALYZER - EXECUTIVE SUMMARY
+  THREAT-NEXUS - EXECUTIVE SUMMARY
 ============================================================================
   Parsed events       : 36
   Threats detected    : 7  (CRITICAL 1 | HIGH 4 | MEDIUM 2 | LOW 0)

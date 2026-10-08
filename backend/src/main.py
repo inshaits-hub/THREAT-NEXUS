@@ -95,7 +95,7 @@ def _risk_style(score: int) -> str:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cyber-log-analyzer",
-        description="Cybersecurity Log Analyzer - standalone CLI (no Flask needed).",
+        description="THREAT-NEXUS- standalone CLI (no Flask needed).",
     )
     parser.add_argument(
         "--log",
@@ -178,7 +178,7 @@ def _print_summary(
     rule = _paint("=" * RULE_WIDTH, "cyan", color)
 
     print(rule)
-    print(_paint("  CYBERSECURITY LOG ANALYZER - EXECUTIVE SUMMARY", "bold", color))
+    print(_paint("  THREAT-NEXUS - EXECUTIVE SUMMARY", "bold", color))
     print(rule)
     _row("Log files", ", ".join(files), color)
     _row("Parsed events", str(summary.get("total_events", len(events))), color, "bold")
