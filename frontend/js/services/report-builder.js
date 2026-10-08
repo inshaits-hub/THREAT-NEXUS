@@ -23,7 +23,7 @@
     });
     var payload = {
       report: {
-        title: "Log Analyzer Report",
+        title: "THREAT-NEXUS Report",
         format: "json",
         generated_at: generatedAt
       },
@@ -69,7 +69,7 @@
 
     return (
       "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">" +
-      "<title>Log Analyzer Report</title>" +
+      "<title>THREAT-NEXUS Report</title>" +
       "<style>body{font-family:Arial,Helvetica,sans-serif;margin:24px;color:#161616;}" +
       "h1{margin-bottom:4px;}.meta{color:#525252;font-size:13px;margin-bottom:20px;}" +
       ".cards{display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap;}" +
@@ -80,7 +80,7 @@
       "th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #e0e0e0;}" +
       "th{text-transform:uppercase;font-size:11px;color:#525252;}</style>" +
       "</head><body>" +
-      "<h1>Log Analyzer Report</h1>" +
+      "<h1>THREAT-NEXUS Report</h1>" +
       "<div class=\"meta\">Generated: " + escapeHtml(generatedAt) + "</div>" +
       "<div class=\"cards\">" +
       "<div class=\"card\"><div class=\"label\">Total events</div><div class=\"value\">" + escapeHtml(summaryData.total_events) + "</div></div>" +

@@ -1,4 +1,4 @@
-# Cybersecurity Log Analyzer — Backend
+# THREAT-NEXUS — Backend
 
 Production-ready backend for the CS senior project. It ingests raw log files,
 normalizes them with regex, runs a heuristic threat engine over the events,
@@ -46,7 +46,12 @@ backend/
 │   ├── test_threats.py     # threat rules, auth analytics, alert handling
 │   ├── test_reports.py     # HTML/JSON report tests
 │   ├── test_api.py         # REST API integration tests
-│   └── test_cli.py         # end-to-end CLI tests
+│   ├── test_cli.py         # end-to-end CLI tests
+│   ├── test_scoring.py     # Core 6: explainable score + time decay
+│   ├── test_copilot.py     # Core 7: copilot stages + command-safety checks
+│   ├── test_honeypot_flask.py # decoys: hits, isolation, hardening, retention
+│   ├── test_streaming.py   # Socket.IO threat_alert events
+│   └── test_ssh_decoy.py    # opt-in SSH trap listener
 └── src/
     ├── app.py              # Flask REST API controller
     ├── main.py             # standalone CLI entry point
@@ -55,7 +60,11 @@ backend/
     ├── auth_analyzer.py    # Core 2: authentication security analytics
     ├── threat_detector.py  # Core 3: heuristic threat engine + IP risk scoring
     ├── alert_manager.py    # Core 4: alert prioritization & badging
-    └── report_generator.py # Core 5: HTML/JSON executive reporting
+    ├── report_generator.py # Core 5: HTML/JSON executive reporting
+    ├── scoring.py          # Core 6: explainable 0-100 score + time decay
+    ├── copilot.py          # Core 7: security copilot (explain + playbooks)
+    ├── honeypot.py         # decoy routes -> CRITICAL HONEYPOT_HIT threats
+    └── ssh_decoy.py        # opt-in SSH trap listener (SSH_DECOY_ENABLED)
 ```
 
 ## 3. CLI (no server required)
@@ -127,6 +136,7 @@ python src/app.py             # http://localhost:5000  (HOST/PORT come from .env
 | GET | `/api/v1/threats?ip=&severity=` | stored alerts (`severity=CRITICAL\|HIGH\|MED\|MEDIUM\|LOW`), each with `badge`, `title`, `risk_score`, `attempts` |
 | GET | `/api/v1/export/report?format=` | `html` or `json`, served as a download from `reports/` |
 | GET | `/api/v1/events?limit=&ip=` | recent parsed events (live table) |
+| GET | `/api/v1/copilot/<threat_id>` | explain + review-only UFW playbook for one threat |
 | GET | `/api/v1/stats` | severity distribution, top risk IPs, upload history |
 | GET | `/api/v1/health` | service/DB status |
 
@@ -185,6 +195,65 @@ It runs the same pipeline as the CLI and the API, so the dashboard shows the
 same numbers a real upload produces: 36 events, 7 alerts, riskiest IP
 `203.0.113.45` (92/100). `--fresh` deletes the target first, so re-running
 never appends duplicate rows.
+
+## 4c. Live streaming, explainable scoring & deception
+
+**Socket.IO (`threat_alert`)** — every new alert (upload, decoy hit, SSH
+trap) is streamed instantly:
+
+```python
+import socketio
+client = socketio.SimpleClient()
+client.connect("http://127.0.0.1:5000")
+event, payload = client.receive()   # ('threat_alert', {...})
+```
+
+Each payload carries the threat plus `score`, `decayed_score`,
+`score_factors` and a `copilot` summary (explanation + UFW commands).
+
+**Scoring (Core Module 6)** —
+`score = min(100, frequency + severity + honeypot_bonus)` and
+`decayed_score = score × e^(−λ·hours)` with `RISK_DECAY_LAMBDA`
+(default 0.05 ≈ 14 h half-life). `/api/v1/threats` returns `score`,
+`decayed_score` and the full `score_factors` breakdown so every number
+is explainable.
+
+**Security Copilot (Core Module 7)** — `GET /api/v1/copilot/<threat_id>`
+returns `{analysis, explanation, playbook}`. Commands like
+`sudo ufw deny from <IP>` are **recommendations only**: IPs are validated
+with `ipaddress`, commands are returned as strings for review, and the
+module never executes anything (a unit test asserts no execution
+primitives exist in its source).
+
+**Honeypot decoys** — deliberately isolated from the real API: the decoy
+path set and the real route set are **disjoint**, enforced by tests
+(`test_decoy_rules_disjoint_from_real_rules`), and a request to a real
+route never raises an alert. Every decoy hit records a CRITICAL
+`HONEYPOT_HIT` with **IP, path and timestamp** (risk 100, +80 deception
+bonus) into the same SQLite database, so hits stream and appear in
+`/api/v1/threats` (field `path`) like any other alert:
+
+| Decoy path | Masquerades as |
+|------------|----------------|
+| `/api/v1/admin/backup` | Admin backup API |
+| `/wp-login.php` | WordPress login form |
+| `/wp-admin/` (+ without slash) | WordPress admin dashboard |
+| `/xmlrpc.php` | WordPress XML-RPC |
+| `/.env` | Leaked environment file |
+| `/.git/config` | Leaked git config |
+| `/phpmyadmin/` (+ without slash) | phpMyAdmin login |
+| `/admin/config.json` | Admin config file |
+| `/cgi-bin/test-cgi` | Legacy CGI script |
+| `/server-status` | Apache server-status |
+
+Requester fields are sanitized/bounded and threat rows are pruned to the
+newest 50 000. The standalone FastAPI variant (its own README, decoy table
+and 26 tests) remains in `honeypot backend/`.
+
+**SSH decoy trap** — opt-in: `SSH_DECOY_ENABLED=1` starts a TCP listener
+(default port 2222) that records the source address as a `HONEYPOT_HIT`
+and closes the connection. It never speaks SSH and never executes
+anything; bind failures log a warning instead of crashing the API.
 
 ## 5. Threat rules (Core Module 3)
 
@@ -249,7 +318,7 @@ are collapsed into a single failure before counting.
 
 ```bash
 cd backend
-python -m pytest            # 90 tests
+python -m pytest            # 159 tests
 python -m pytest tests/test_threats.py -k brute -v
 ```
 
@@ -259,7 +328,11 @@ rules, risk-score bounds, auth ratios/high-risk accounts/session windows,
 alert deduplication + badge colors + attempt counts, report rendering (incl.
 HTML escaping), every REST endpoint (upload, filters, exports, validation
 errors), schema migration, CLI color on/off/quiet behavior and the CLI
-end-to-end.
+end-to-end — plus scoring factors/time-decay exactness, copilot playbook
+safety (validated IPs, no execution primitives), every decoy route
+(isolation both directions, bounded attacker fields, retention),
+Socket.IO `threat_alert` emission, and the SSH trap (off by default,
+records hits, survives handler crashes).
 
 ## 9. Configuration (`.env`)
 
@@ -275,6 +348,11 @@ ANALYSIS_THRESHOLD=5         # brute-force rule threshold
 HOST=127.0.0.1  PORT=5000    # API bind address
 FLASK_ENV=development        # development = reloader + Werkzeug debugger
 SECRET_KEY=...               # Flask secret
+RISK_DECAY_LAMBDA=0.05       # scoring time-decay rate per hour
+SOCKETIO_ALLOWED_ORIGINS=*   # Socket.IO CORS origin(s)
+SSH_DECOY_ENABLED=0          # 1 = start the SSH decoy listener
+SSH_DECOY_PORT=2222          # decoy listen port
+SSH_DECOY_HOST=0.0.0.0       # decoy bind address
 ```
 
 ## 10. Notes for team members

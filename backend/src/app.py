@@ -9,34 +9,51 @@ Endpoints (base URL ``http://localhost:5000``):
 ``GET  /api/v1/export/report``  downloadable HTML/JSON report from ``reports/``
 ==========================  ==============================================
 
+Real-time: every threat saved by ``/api/v1/upload`` is also pushed to
+connected dashboards as a Socket.IO ``threat_alert`` event.
+
 Core analysis stays in the pure modules; this file only orchestrates them.
 """
 
 from __future__ import annotations
 
+import atexit
+import logging
 import os
+import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_file
+from flask_socketio import SocketIO
 
 try:  # package import
     from . import (
         alert_manager,
         auth_analyzer,
+        copilot,
         database,
+        honeypot,
         log_parser,
         report_generator,
+        scoring,
+        ssh_decoy,
         threat_detector,
     )
 except ImportError:  # script import (``python src/app.py``)
     import alert_manager
     import auth_analyzer
+    import copilot
     import database
+    import honeypot
     import log_parser
     import report_generator
+    import scoring
+    import ssh_decoy
     import threat_detector
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {".log", ".txt"}
 EXPORT_FORMATS = {"html", "json"}
@@ -44,11 +61,29 @@ SEVERITY_QUERY_VALUES = set(alert_manager.SEVERITY_RANK) | set(
     alert_manager.SEVERITY_ALIASES
 )
 
+# Real-time channel. "threading" mode needs no extra server library and works
+# on Windows, with the Flask dev server and with gunicorn's gthread worker.
+# CORS defaults to open because the dashboard and API can live on different
+# origins; set SOCKETIO_ALLOWED_ORIGINS to restrict it.
+socketio = SocketIO(
+    cors_allowed_origins=os.environ.get("SOCKETIO_ALLOWED_ORIGINS") or "*",
+    async_mode="threading",
+)
+
 
 def _error(message: str, status: int, **extra):
     payload = {"status": "error", "message": message}
     payload.update(extra)
     return jsonify(payload), status
+
+
+def _decay_lambda() -> float:
+    """λ for score decay; env ``RISK_DECAY_LAMBDA`` overrides the default."""
+    try:
+        value = float(os.environ.get("RISK_DECAY_LAMBDA", scoring.DEFAULT_LAMBDA))
+    except (TypeError, ValueError):
+        return scoring.DEFAULT_LAMBDA
+    return max(0.0, value)
 
 
 def create_app(db_path=None, reports_dir=None) -> Flask:
@@ -71,6 +106,46 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
     )
     reports_path.mkdir(parents=True, exist_ok=True)
 
+    # ------------------------------------------------------------- Socket.IO
+    # Single module-level instance (shared by the app factory and tests);
+    # create_app attaches it below with init_app. Every new alert becomes a
+    # 'threat_alert' event.
+    app.extensions["socketio"] = socketio
+
+    def _emit_threat(threat: dict) -> None:
+        """Stream one alert with its explainable score + copilot summary."""
+        if socketio is None:
+            return
+        try:
+            attempts = max(
+                1, int(threat.get("attempts") or threat.get("occurrences") or 1)
+            )
+        except (TypeError, ValueError):
+            attempts = 1
+        factors = scoring.score_factors(
+            attempts=attempts,
+            severity=alert_manager.normalize_severity(
+                threat.get("severity"), threat.get("risk_score")
+            ),
+            honeypot=str(threat.get("type")) == "HONEYPOT_HIT",
+            timestamp=threat.get("timestamp"),
+            lam=_decay_lambda(),
+        )
+        payload = dict(threat)
+        payload["score"] = factors["score"]
+        payload["decayed_score"] = factors["decayed_score"]
+        payload["score_factors"] = factors
+        payload["copilot"] = {
+            "explanation": copilot.explain(threat),
+            "commands": copilot.remediate(threat)["commands"],
+        }
+        socketio.emit("threat_alert", payload)
+
+    # The decoy blueprint looks this up per request (spec 4.4).
+    app.extensions["threat_notifier"] = _emit_threat
+    # Attach the real-time layer to this app.
+    socketio.init_app(app)
+
     # ------------------------------------------------------------------ CORS
     @app.after_request
     def add_cors_headers(response):
@@ -78,6 +153,25 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         return response
+
+    # ------------------------------------------------------ honeypot decoys
+    # Isolated blueprint: 10 decoy routes (12 paths incl. slash variants).
+    # Path sets are disjoint from the real routes below; tests enforce it.
+    app.register_blueprint(honeypot.create_honeypot_blueprint())
+
+    # ---------------------------------------------------------- SSH decoy
+    # Opt-in trap (SSH_DECOY_ENABLED=1): records a hit, never executes.
+    def _ssh_decoy_hit(ip: str, port: int) -> None:
+        honeypot.record_honeypot_hit(
+            ip=ip,
+            details=f"TCP connection to SSH decoy port {port} from {ip}",
+            notify=_emit_threat,
+        )
+
+    ssh_listener = ssh_decoy.start_from_env(_ssh_decoy_hit)
+    if ssh_listener is not None:
+        app.extensions["ssh_decoy"] = ssh_listener
+        atexit.register(ssh_listener.stop)
 
     # --------------------------------------------------------------- health
     @app.get("/api/v1/health")
@@ -153,6 +247,9 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
         finally:
             conn.close()
 
+        for alert in alerts:
+            _emit_threat(alert)
+
         auth_stats = auth_analyzer.analyze_authentication(events)
         riskiest = analysis["top_risk_ips"][0] if analysis["top_risk_ips"] else None
 
@@ -203,6 +300,13 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
                 attempts = max(1, int(row.get("attempts") or 1))
             except (TypeError, ValueError):
                 attempts = 1
+            factors = scoring.score_factors(
+                attempts=attempts,
+                severity=canonical,
+                honeypot=str(row.get("type")) == "HONEYPOT_HIT",
+                timestamp=row.get("timestamp"),
+                lam=_decay_lambda(),
+            )
             payload.append(
                 {
                     "id": row.get("id"),
@@ -212,12 +316,25 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
                     "badge": alert_manager.badge_for(canonical),
                     "title": alert_manager.title_for(row.get("type")),
                     "details": row.get("details"),
+                    "path": row.get("path"),
                     "timestamp": row.get("timestamp"),
                     "risk_score": row.get("risk_score"),
                     "attempts": attempts,
+                    "score": factors["score"],
+                    "decayed_score": factors["decayed_score"],
+                    "score_factors": factors,
                 }
             )
         return jsonify(payload)
+
+    # ---------------------------------------------------------------- copilot
+    @app.get("/api/v1/copilot/<int:threat_id>")
+    def threat_playbook(threat_id: int):
+        """Analyze + explain + review-only remediation for one threat."""
+        row = database.get_threat(threat_id)
+        if row is None:
+            return _error(f"Threat {threat_id} not found.", 404)
+        return jsonify({"threat_id": threat_id, **copilot.build_playbook(row)})
 
     # --------------------------------------------------------------- export
     @app.get("/api/v1/export/report")
@@ -279,8 +396,24 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(
-        host=os.environ.get("HOST", "127.0.0.1"),
-        port=int(os.environ.get("PORT", "5000")),
-        debug=os.environ.get("FLASK_ENV", "development") == "development",
-    )
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", "5000"))
+    # The interactive Werkzeug debugger is a remote-code-execution risk, so
+    # FLASK_ENV=development only takes effect while the API stays on loopback.
+    # Docker/gunicorn never reach this branch; this guard covers
+    # ``HOST=0.0.0.0 python src/app.py`` with a development .env.
+    debug = os.environ.get("FLASK_ENV", "development") == "development"
+    if debug and host not in {"127.0.0.1", "localhost", "::1"}:
+        print(
+            f"[warn] HOST={host} is not loopback: starting without the "
+            "debugger/reloader. Set FLASK_ENV=production for networked use.",
+            file=sys.stderr,
+        )
+        debug = False
+    _sio = app.extensions.get("socketio")
+    if _sio is not None:
+        # Dev server with WebSocket support (threading mode + simple-websocket).
+        _sio.run(app, host=host, port=port, debug=debug,
+                 allow_unsafe_werkzeug=True)
+    else:
+        app.run(host=host, port=port, debug=debug)
