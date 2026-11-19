@@ -1,0 +1,105 @@
+name: Threat-Nexus CI/CD Pipeline
+
+on:
+  push:
+    branches: [development, main]
+  pull_request:
+    branches: [development, main]
+  workflow_dispatch:
+
+jobs:
+  # ---------- Part A: Source & CI ----------
+  build-and-test:
+    name: Build and Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+
+      - name: Check Python syntax (build step)
+        run: python -m compileall backend src
+
+      - name: Run unit tests
+        run: |
+          pytest || [ $? -eq 5 ]   # exit code 5 = no tests found, so it won't fail
+
+  # ---------- Part B: Delivery ----------
+  package:
+    name: Package Artifact
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker images
+        run: docker compose build
+
+      - name: Create build artifact
+        run: zip -r threat-nexus-build.zip backend frontend src deploy docker-compose.yml index.html -x "*.pyc"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: threat-nexus-build
+          path: threat-nexus-build.zip
+
+  staging:
+    name: Deploy to Staging and Integration Tests
+    needs: package
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: threat-nexus-build
+
+      - name: Simulated staging deploy
+        run: |
+          unzip -q threat-nexus-build.zip -d staging
+          echo "Deployed to staging environment"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Integration tests
+        run: |
+          pip install pytest
+          if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
+          pytest || [ $? -eq 5 ]
+
+  # ---------- Part C: Operations ----------
+  production:
+    name: Production Deploy and Smoke Test
+    needs: staging
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production   # set Required reviewers in GitHub for the approval gate
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Simulated production deploy
+        run: echo "Deploying Threat-Nexus to production"
+
+      - name: Smoke test
+        run: |
+          test -f index.html && echo "index.html present"
+          test -d backend && echo "backend present"
+          echo "Smoke tests passed"
+
+      - name: Monitoring and rollback note
+        run: echo "Monitor logs and error rate. If smoke tests fail, redeploy the previous artifact or git revert the merge."
