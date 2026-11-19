@@ -27,6 +27,8 @@ services:
       DB_PATH: instance/logs.db
       REPORTS_DIR: reports
       ANALYSIS_THRESHOLD: "5"
+      RISK_DECAY_LAMBDA: "${RISK_DECAY_LAMBDA:-}"
+      HONEYPOT_IPS: "${HONEYPOT_IPS:-}"
       MAX_UPLOAD_MB: "16"
       FLASK_ENV: production
       SECRET_KEY: "${SECRET_KEY:-change-me-in-production}"

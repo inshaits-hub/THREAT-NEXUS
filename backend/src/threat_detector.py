@@ -19,6 +19,7 @@ The module is pure Python: no Flask, no database.
 
 from __future__ import annotations
 
+import math
 import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
@@ -27,10 +28,12 @@ from urllib.parse import unquote
 
 try:  # package import
     from .auth_analyzer import FAILURE_ACTIONS, SENSITIVE_ACCOUNTS, failure_events
-    from .log_parser import event_time
+    from .alert_manager import title_for
+    from .log_parser import event_destination, event_time
 except ImportError:  # script import (``python src/main.py``)
     from auth_analyzer import FAILURE_ACTIONS, SENSITIVE_ACCOUNTS, failure_events
-    from log_parser import event_time
+    from alert_manager import title_for
+    from log_parser import event_destination, event_time
 
 BRUTE_FORCE_WINDOW_SECONDS = 60
 DEFAULT_THRESHOLD = 5
@@ -99,6 +102,11 @@ RULE_WEIGHTS = {
     "OFF_HOUR_ADMIN": 10,
 }
 
+#: Points added when the IP is a configured honeypot IP (``HONEYPOT_IPS``).
+HONEYPOT_BONUS = 20
+#: Hourly decay constant with a 24-hour half-life: score halves every 24h.
+DEFAULT_DECAY_LAMBDA = math.log(2) / 24
+
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -135,6 +143,7 @@ def _threat(
         "details": details,
         "timestamp": moment.isoformat(sep=" ") if isinstance(moment, datetime) else str(moment),
         "risk_score": 0,
+        "risk_factors": [],
         "attempts": max(1, int(attempts)),
     }
 
@@ -381,33 +390,89 @@ def _detect_scans(timeline, web_threshold: int, port_threshold: int) -> List[Dic
 
 
 # --------------------------------------------------------------------------- #
-# Rule 5: IP reputation scoring (0 - 100)
+# Rule 5: IP reputation scoring (0 - 100, explainable, time-decayed)
 # --------------------------------------------------------------------------- #
-def compute_ip_risk_scores(events: Iterable[Dict], threats: Iterable[Dict]) -> Dict[str, int]:
-    """Dynamic per-IP risk score: cumulative flag severity + attempt frequency.
+def validate_decay_lambda(decay_lambda) -> float:
+    """Return ``decay_lambda`` as a float; negative, NaN, infinite or non-numeric raise."""
+    try:
+        value = float(decay_lambda)
+    except (TypeError, ValueError):
+        raise ValueError(f"decay lambda must be a number, got {decay_lambda!r}")
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"decay lambda must be a finite number >= 0, got {decay_lambda!r}")
+    return value
 
-    * each distinct rule type fired for an IP adds its weight (repeats of the
-      same rule do not stack),
-    * failed logins add up to +25,
-    * requests carrying exploit patterns add up to +15,
-    * the final score is clamped to 0-100.
+
+def parse_honeypot_ips(value) -> frozenset:
+    """Parse ``HONEYPOT_IPS`` (comma separated string or iterable) into a set."""
+    if not value:
+        return frozenset()
+    if isinstance(value, str):
+        value = value.split(",")
+    return frozenset(str(item).strip() for item in value if str(item).strip())
+
+
+def explain_ip_risk_scores(
+    events: Iterable[Dict],
+    threats: Iterable[Dict],
+    decay_lambda: float = DEFAULT_DECAY_LAMBDA,
+    honeypot_ips=None,
+) -> Dict[str, Dict]:
+    """Per-IP 0-100 risk score with the factors that produced it.
+
+    ``base = min(100, frequency_points + severity_points + honeypot_bonus)``
+    ``final = round(base * exp(-decay_lambda * hours_since_last_event))``
+
+    * frequency points: failed logins (up to +25) and exploit requests (up to +15),
+    * severity points: each distinct rule fired for the IP adds its
+      :data:`RULE_WEIGHTS` weight (repeats do not stack),
+    * honeypot bonus: :data:`HONEYPOT_BONUS`, once per source IP, when any of
+      its events targets (``DST=``) one of the destination ``honeypot_ips``,
+    * hours are measured from the IP's last *really parsed* event time to the
+      newest real event time in the dataset (never wall-clock), clamped to
+      >= 0; ``decay_lambda=0`` disables decay and an IP with no real event
+      timestamp is not decayed,
+    * an IP whose score decays to 0 is kept (score 0) so its factors remain.
+
+    Returns ``{ip: {"score", "base_score", "frequency_points",
+    "severity_points", "honeypot_bonus", "decay_factor",
+    "hours_since_last_event", "last_event", "factors": [...]}}`` where every
+    factor is ``{"factor", "points", "detail"}``. IPs scoring 0 are omitted.
     """
+    decay_lambda = validate_decay_lambda(decay_lambda)
+    honeypots = parse_honeypot_ips(honeypot_ips)
     events = list(events)
     threats = list(threats)
 
-    weighted: Dict[Tuple[str, str], int] = {}
+    rules: Dict[str, Dict[str, int]] = defaultdict(dict)
+    last_seen: Dict[str, datetime] = {}
+    honeypot_hits: Dict[str, set] = defaultdict(set)
+    newest: Optional[datetime] = None
+
+    def observe(ip, moment) -> None:
+        nonlocal newest
+        if moment is None:
+            return
+        if ip and (ip not in last_seen or moment > last_seen[ip]):
+            last_seen[ip] = moment
+        if newest is None or moment > newest:
+            newest = moment
+
     for threat in threats:
         ip = threat.get("ip")
         if not ip:
             continue
-        key = (ip, threat.get("type"))
-        weighted[key] = max(
-            weighted.get(key, 0), RULE_WEIGHTS.get(threat.get("type"), 10)
-        )
+        kind = threat.get("type")
+        rules[ip][kind] = max(rules[ip].get(kind, 0), RULE_WEIGHTS.get(kind, 10))
 
-    base: Counter = Counter()
-    for (ip, _kind), weight in weighted.items():
-        base[ip] += weight
+    for event in events:
+        if isinstance(event, dict):
+            # Only real parsed timestamps drive decay; threat timestamps may be
+            # synthetic fallbacks (see ``_timeline``) and are ignored here.
+            observe(event.get("ip"), event_time(event))
+            destination = event_destination(event)
+            if event.get("ip") and destination in honeypots:
+                honeypot_hits[event["ip"]].add(destination)
 
     failures: Counter = Counter()
     for event in failure_events(events):
@@ -415,17 +480,113 @@ def compute_ip_risk_scores(events: Iterable[Dict], threats: Iterable[Dict]) -> D
             failures[event["ip"]] += 1
 
     exploits: Counter = Counter()
-    for event, _moment in _timeline(events):
+    for event in events:
         if matched_exploit(event)[0] is not None and event.get("ip"):
             exploits[event["ip"]] += 1
 
-    scores: Dict[str, int] = {}
-    for ip in set(base) | set(failures) | set(exploits):
-        score = base[ip] + min(25, failures[ip] * 2) + min(15, exploits[ip])
-        score = max(0, min(100, score))
-        if score > 0:
-            scores[ip] = score
-    return scores
+    results: Dict[str, Dict] = {}
+    candidates = set(rules) | set(failures) | set(exploits) | set(honeypot_hits)
+    for ip in sorted(candidates):
+        factors: List[Dict] = []
+        severity_points = 0
+        for kind, weight in sorted(
+            rules[ip].items(), key=lambda pair: (-pair[1], str(pair[0]))
+        ):
+            severity_points += weight
+            factors.append(
+                {
+                    "factor": f"rule:{kind}",
+                    "points": weight,
+                    "detail": f"{title_for(kind)} detected ({kind})",
+                }
+            )
+        frequency_points = 0
+        if failures[ip]:
+            points = min(25, failures[ip] * 2)
+            frequency_points += points
+            factors.append(
+                {
+                    "factor": "failed_logins",
+                    "points": points,
+                    "detail": f"{failures[ip]} failed login events (2 pts each, max 25)",
+                }
+            )
+        if exploits[ip]:
+            points = min(15, exploits[ip])
+            frequency_points += points
+            factors.append(
+                {
+                    "factor": "exploit_requests",
+                    "points": points,
+                    "detail": (
+                        f"{exploits[ip]} requests with exploit patterns "
+                        "(1 pt each, max 15)"
+                    ),
+                }
+            )
+        honeypot_bonus = HONEYPOT_BONUS if honeypot_hits.get(ip) else 0
+        if honeypot_bonus:
+            factors.append(
+                {
+                    "factor": "honeypot",
+                    "points": honeypot_bonus,
+                    "detail": "targeted honeypot "
+                    + ", ".join(sorted(honeypot_hits[ip])),
+                }
+            )
+
+        raw_base = frequency_points + severity_points + honeypot_bonus
+        base = min(100, raw_base)
+        if base <= 0:
+            continue
+        if raw_base > 100:
+            factors.append(
+                {
+                    "factor": "capped_at_100",
+                    "points": 100 - raw_base,
+                    "detail": f"raw base {raw_base} exceeds the maximum of 100",
+                }
+            )
+
+        hours = 0.0
+        if newest is not None and ip in last_seen:
+            hours = max(0.0, (newest - last_seen[ip]).total_seconds() / 3600)
+        decay_factor = math.exp(-decay_lambda * hours)
+        score = max(0, min(100, int(base * decay_factor + 0.5)))
+        if decay_factor < 1:
+            factors.append(
+                {
+                    "factor": "time_decay",
+                    "points": score - base,
+                    "detail": (
+                        f"last event {hours:.1f}h before the newest event; "
+                        f"x{decay_factor:.3f} (lambda={decay_lambda:.4f}/h)"
+                    ),
+                }
+            )
+        results[ip] = {
+            "score": score,
+            "base_score": base,
+            "frequency_points": frequency_points,
+            "severity_points": severity_points,
+            "honeypot_bonus": honeypot_bonus,
+            "decay_factor": decay_factor,
+            "hours_since_last_event": hours,
+            "last_event": last_seen[ip].isoformat(sep=" ") if ip in last_seen else None,
+            "factors": factors,
+        }
+    return results
+
+
+def compute_ip_risk_scores(
+    events: Iterable[Dict],
+    threats: Iterable[Dict],
+    decay_lambda: float = DEFAULT_DECAY_LAMBDA,
+    honeypot_ips=None,
+) -> Dict[str, int]:
+    """Dynamic per-IP risk score ``{ip: 0-100}``; see :func:`explain_ip_risk_scores`."""
+    explained = explain_ip_risk_scores(events, threats, decay_lambda, honeypot_ips)
+    return {ip: entry["score"] for ip, entry in explained.items()}
 
 
 # --------------------------------------------------------------------------- #
@@ -437,13 +598,15 @@ def detect_threats(
     spike_threshold: int = DEFAULT_SPIKE_THRESHOLD,
     web_scan_threshold: int = DEFAULT_WEB_SCAN_THRESHOLD,
     port_scan_threshold: int = DEFAULT_PORT_SCAN_THRESHOLD,
+    decay_lambda: float = DEFAULT_DECAY_LAMBDA,
+    honeypot_ips=None,
 ) -> List[Dict]:
     """Run every heuristic rule over ``events``.
 
     Returns threat records shaped like::
 
         {'type': str, 'ip': str, 'severity': str, 'details': str,
-         'timestamp': str, 'risk_score': int}
+         'timestamp': str, 'risk_score': int, 'risk_factors': [...]}
 
     sorted chronologically, where ``risk_score`` is the offending IP's
     reputation score (0-100).
@@ -456,9 +619,11 @@ def detect_threats(
     threats.extend(_detect_anomalies(timeline, spike_threshold))
     threats.extend(_detect_scans(timeline, web_scan_threshold, port_scan_threshold))
 
-    scores = compute_ip_risk_scores(events, threats)
+    explained = explain_ip_risk_scores(events, threats, decay_lambda, honeypot_ips)
     for threat in threats:
-        threat["risk_score"] = scores.get(threat.get("ip"), 0)
+        entry = explained.get(threat.get("ip"))
+        threat["risk_score"] = entry["score"] if entry else 0
+        threat["risk_factors"] = list(entry["factors"]) if entry else []
 
     threats.sort(key=lambda item: (item.get("timestamp") or "", item.get("type") or ""))
     return threats

@@ -34,6 +34,15 @@ except ImportError:  # script import (``python src/main.py``)
 
 RULE_WIDTH = 76
 
+
+def decay_lambda_arg(value: str) -> float:
+    """argparse ``type=`` adapter around ``threat_detector.validate_decay_lambda``."""
+    try:
+        return threat_detector.validate_decay_lambda(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc))
+
+
 # --------------------------------------------------------------------------- #
 # Terminal colors
 #
@@ -123,6 +132,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=int(os.environ.get("ANALYSIS_THRESHOLD", "5")),
         help="Brute-force threshold: alert when failures exceed this within 60s "
         "(default: 5).",
+    )
+    parser.add_argument(
+        "--decay-lambda",
+        type=decay_lambda_arg,
+        # A string default is run through type by argparse, so an invalid
+        # RISK_DECAY_LAMBDA is reported as a clean usage error (exit 2) too.
+        default=os.environ.get("RISK_DECAY_LAMBDA")
+        or str(threat_detector.DEFAULT_DECAY_LAMBDA),
+        help="Risk score decay per hour (default: ln2/24, a 24h half-life; 0 = no decay).",
+    )
+    parser.add_argument(
+        "--honeypot-ips",
+        default=os.environ.get("HONEYPOT_IPS", ""),
+        help="Comma separated honeypot destination IPs; sources targeting them get +20 risk (default: HONEYPOT_IPS or none).",
     )
     parser.add_argument(
         "--db", default=None, help="SQLite path (default: DB_PATH from .env)."
@@ -279,7 +302,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not loaded:
             return 1
 
-    threats = threat_detector.detect_threats(events, threshold=args.threshold)
+    threats = threat_detector.detect_threats(
+        events,
+        threshold=args.threshold,
+        decay_lambda=args.decay_lambda,
+        honeypot_ips=args.honeypot_ips,
+    )
     alerts = alert_manager.process_alerts(threats)
     summary = report_generator.build_summary(events, alerts)
     auth_stats = auth_analyzer.analyze_authentication(events)
