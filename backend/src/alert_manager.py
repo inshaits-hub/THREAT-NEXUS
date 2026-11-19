@@ -21,7 +21,7 @@ try:  # package import
     from .log_parser import parse_timestamp
 except ImportError:  # script import (``python src/main.py``)
     from log_parser import parse_timestamp
-  try:
+try:
     from .copilot import generate_copilot_output
 except ImportError:
     from copilot import generate_copilot_output
