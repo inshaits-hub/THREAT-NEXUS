@@ -66,10 +66,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: threat-nexus-build
+          path: ${{ runner.temp }}/artifact
 
       - name: Simulated staging deploy
         run: |
-          unzip -q threat-nexus-build.zip -d staging
+          mkdir -p ${{ runner.temp }}/staging
+          unzip -q ${{ runner.temp }}/artifact/threat-nexus-build.zip -d ${{ runner.temp }}/staging
           echo "Deployed to staging environment"
 
       - uses: actions/setup-python@v5
@@ -78,9 +80,12 @@ jobs:
 
       - name: Integration tests
         run: |
-          pip install pytest
+          python -m pip install --upgrade pip
           if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
           pytest || [ $? -eq 5 ]
+
 
   # ---------- Part C: Operations ----------
   production:
