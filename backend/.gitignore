@@ -8,3 +8,6 @@ reports/*
 
 # The root .gitignore ignores *.log; the demo capture is a committed fixture.
 !samples/*.log
+
+# Honeypot runtime database (holds attacker IPs / decoy hits)
+honeypot backend/alerts.db
