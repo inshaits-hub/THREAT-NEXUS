@@ -350,7 +350,7 @@ are collapsed into a single failure before counting.
 
 ```bash
 cd backend
-python -m pytest            # 260 tests
+python -m pytest            # 266 tests
 python -m pytest tests/test_threats.py -k brute -v
 ```
 
@@ -381,7 +381,7 @@ RISK_DECAY_LAMBDA=           # risk decay per hour (empty = 24h half-life, 0 = o
 HONEYPOT_IPS=                # honeypot destination IPs; sources hitting them get +20 risk
 HOST=127.0.0.1  PORT=5000    # API bind address
 FLASK_ENV=development        # development = reloader + Werkzeug debugger
-SECRET_KEY=...               # Flask secret
+SECRET_KEY=...  # Flask secret (required when FLASK_ENV=production)
 RISK_DECAY_LAMBDA=0.05       # scoring time-decay rate per hour
 SOCKETIO_ALLOWED_ORIGINS=*   # Socket.IO CORS origin(s)
 SSH_DECOY_ENABLED=0          # 1 = start the SSH decoy listener
