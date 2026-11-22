@@ -102,9 +102,6 @@ _FIREWALL_DST_RE = re.compile(r"\bDST=(?P<ip>[0-9A-Fa-f:.]+)")
 _FIREWALL_DPT_RE = re.compile(r"\bDPT=(?P<port>\d+)")
 _FIREWALL_RE = re.compile(r"\bUFW BLOCK\b|\bDROP\b|iptables", re.IGNORECASE)
 
-_ACTION_SUCCESS = "ssh_login_success"
-
-
 # --------------------------------------------------------------------------- #
 # Timestamp helpers
 # --------------------------------------------------------------------------- #
