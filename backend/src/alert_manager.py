@@ -21,10 +21,7 @@ try:  # package import
     from .log_parser import parse_timestamp
 except ImportError:  # script import (``python src/main.py``)
     from log_parser import parse_timestamp
-try:
-    from .copilot import generate_copilot_output
-except ImportError:
-    from copilot import generate_copilot_output
+
 
 SEVERITY_RANK = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 BADGE_COLORS = {
@@ -101,6 +98,12 @@ def severity_counts(alerts: Iterable[Dict]) -> Dict[str, int]:
 
 
 def _build_alert(item: Dict, dedupe_window: int = DEDUPE_WINDOW_SECONDS) -> Dict:
+        # Imported here because copilot imports alert_manager (circular import).
+    try:
+        from .copilot import generate_copilot_output
+    except ImportError:
+        from copilot import generate_copilot_output
+        
     severity = item["severity"]
     badge = BADGE_COLORS[severity]
     title = title_for(item["type"])
