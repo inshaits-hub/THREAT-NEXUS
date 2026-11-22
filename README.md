@@ -19,7 +19,7 @@ cp .env.example .env
 
 ./run_web.sh --demo        # REST API on http://127.0.0.1:5000, seeded with demo data
 ./run_cli.sh               # or analyze from the terminal, no server needed
-python -m pytest           # 260 tests
+python -m pytest           # 266 tests
 ```
 
 Or with Docker:
@@ -78,7 +78,7 @@ the dashboard and reverse-proxying `/api/`:
 
 ```bash
 docker compose up --build          # dashboard on http://localhost:8080
-cp .env.example .env               # optional: set WEB_PORT / SECRET_KEY first
+cp .env.example .env               # Set SECRET_KEY in .env to a long random value. The production stack refuses to start with the placeholder
 docker compose down -v             # stop and discard the database
 ```
 
