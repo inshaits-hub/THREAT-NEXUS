@@ -31,6 +31,12 @@ jobs:
       - name: Check Python syntax (build step)
         run: python -m compileall backend src
 
+      - name: Lint with flake8
+        working-directory: backend
+        run: |
+          pip install flake8
+          flake8 src
+
       - name: Run unit tests
         working-directory: backend
         run: python -m pytest -v
