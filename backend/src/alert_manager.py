@@ -78,16 +78,19 @@ def normalize_severity(value=None, risk_score=None) -> str:
 
 
 def badge_for(severity) -> str:
+    """Return the badge color for a normalized severity level."""
     return BADGE_COLORS.get(normalize_severity(severity), "blue")
 
 
 def title_for(threat_type) -> str:
+    """Return a human-readable title for a threat type."""
     return TITLES.get(
         threat_type, str(threat_type or "Security Event").replace("_", " ").title()
     )
 
 
 def severity_counts(alerts: Iterable[Dict]) -> Dict[str, int]:
+    """Count alerts by normalized severity."""
     counts = {name: 0 for name in SEVERITY_RANK}
     for alert in alerts or []:
         severity = normalize_severity(
@@ -98,12 +101,11 @@ def severity_counts(alerts: Iterable[Dict]) -> Dict[str, int]:
 
 
 def _build_alert(item: Dict, dedupe_window: int = DEDUPE_WINDOW_SECONDS) -> Dict:
-        # Imported here because copilot imports alert_manager (circular import).
+    # Imported here because copilot imports alert_manager (circular import).
     try:
-        from .copilot import generate_copilot_output
+        from .copilot import generate_copilot_output  # pylint: disable=import-outside-toplevel
     except ImportError:
-        from copilot import generate_copilot_output
-        
+        from copilot import generate_copilot_output  # pylint: disable=import-outside-toplevel
     severity = item["severity"]
     badge = BADGE_COLORS[severity]
     title = title_for(item["type"])
@@ -196,7 +198,7 @@ def process_alerts(
         groups.setdefault((item["ip"], item["type"]), []).append(item)
 
     alerts: List[Dict] = []
-    for (_ip, _kind), items in groups.items():
+    for _, items in groups.items():
         items.sort(
             key=lambda entry: (
                 entry["_dt"] is None,

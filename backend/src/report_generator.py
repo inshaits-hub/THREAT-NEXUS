@@ -35,33 +35,56 @@ SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
 CSS = """
 :root{--bg:#0f172a;--card:#1e293b;--line:#334155;--text:#e2e8f0;--muted:#94a3b8;}
 *{box-sizing:border-box}
-body{margin:0;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f1f5f9;color:#0f172a;}
-.wrap{max-width:1180px;margin:0 auto;padding:32px 24px 64px}
-header.top{background:var(--bg);color:#fff;border-radius:14px;padding:28px 32px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+body{margin:0;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+background:#f1f5f9;color:#0f172a;}
+.wrap{max-width:1180px;margin:0 auto;
+padding:32px 24px 64px}
+header.top{background:var(--bg);color:#fff;border-radius:14px;padding:28px 32px;
+display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
 header.top h1{margin:0;font-size:24px;letter-spacing:.4px}
 header.top .meta{color:var(--muted);font-size:13px;text-align:right}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px;margin:24px 0}
-.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:18px 20px;box-shadow:0 1px 3px rgba(15,23,42,.06)}
-.card .label{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#64748b}
-.card .value{font-size:32px;font-weight:700;margin-top:6px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+gap:16px;margin:24px 0}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;
+padding:18px 20px;box-shadow:0 1px 3px rgba(15,23,42,.06)}
+.card .label{font-size:12px;text-transform:uppercase;letter-spacing:1px;
+color:#64748b}
+.card .value{font-size:32px;
+font-weight:700;margin-top:6px}
 .card.crit .value{color:#dc2626}
-section{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:22px 24px;margin-top:22px;box-shadow:0 1px 3px rgba(15,23,42,.06)}
-section h2{margin:0 0 16px;font-size:17px;text-transform:uppercase;letter-spacing:.8px;color:#334155;border-bottom:1px solid #e2e8f0;padding-bottom:10px}
+section{background:#fff;border:1px solid #e2e8f0;border-radius:12px;
+padding:22px 24px;margin-top:22px;box-shadow:0 1px 3px rgba(15,23,42,.06)}
+section h2{margin:0 0 16px;font-size:17px;text-transform:uppercase;
+letter-spacing:.8px;color:#334155;border-bottom:1px solid #e2e8f0;
+padding-bottom:10px}
 table{width:100%;border-collapse:collapse;font-size:14px}
-th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:#64748b;padding:8px 10px;border-bottom:2px solid #e2e8f0}
+th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.6px;
+color:#64748b;padding:8px 10px;border-bottom:2px solid #e2e8f0}
 td{padding:9px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top}
 tr:last-child td{border-bottom:none}
-.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:700;letter-spacing:.6px;color:#fff}
-.badge.red{background:#dc2626}.badge.orange{background:#f97316}.badge.yellow{background:#eab308;color:#422006}.badge.blue{background:#3b82f6}
-.bar{position:relative;background:#e2e8f0;border-radius:6px;height:14px;min-width:120px;overflow:hidden}
-.bar>span{position:absolute;left:0;top:0;bottom:0;border-radius:6px}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;
+font-size:11.5px;font-weight:700;
+letter-spacing:.6px;color:#fff}
+.badge.red{background:#dc2626}.badge.orange{background:#f97316}.badge.yellow{background:#eab308;
+color:#422006}.badge.blue{background:#3b82f6}
+.bar{position:relative;
+background:#e2e8f0;border-radius:6px;height:14px;
+min-width:120px;overflow:hidden}
+.bar>span{position:absolute;
+left:0;
+top:0;
+bottom:0;
+border-radius:6px}
 .ip{font-family:Consolas,'Courier New',monospace;font-weight:600}
 .mono{font-family:Consolas,'Courier New',monospace;font-size:13px}
 .muted{color:#94a3b8}
 .empty{padding:24px;text-align:center;color:#64748b;font-size:15px}
 footer{margin-top:26px;text-align:center;color:#94a3b8;font-size:12.5px}
-.distro{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
-.distro .item{border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}
+.distro{display:grid;
+grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+gap:14px}
+.distro .item{border:1px solid #e2e8f0;
+border-radius:10px;padding:12px 14px}
 .distro .item .n{font-size:22px;font-weight:700}
 """
 
@@ -136,11 +159,11 @@ def build_summary(
         "generated_at": datetime.now().isoformat(sep=" ", timespec="seconds"),
     }
     return summary
-
-
 # --------------------------------------------------------------------------- #
 # HTML report
 # --------------------------------------------------------------------------- #
+
+
 def _bar(percent: float, color: str) -> str:
     percent = max(3, min(100, percent))
     return (
@@ -158,9 +181,11 @@ def _cards_html(summary: Dict) -> str:
         ("Unique IPs", summary.get("unique_ips", 0), ""),
         (
             "Riskiest IP",
-            f'<span class="ip" style="font-size:20px">{html.escape(str(riskiest.get("ip") or "n/a"))}</span>'
+            f'<span class="ip" style="font-size:20px">'
+            f'{html.escape(str(riskiest.get("ip") or "n/a"))}</span>'
             + (
-                f'<div class="muted" style="font-size:13px">score {int(riskiest.get("risk_score") or 0)}/100</div>'
+                f'<div class="muted" style="font-size:13px">'
+                f'score {int(riskiest.get("risk_score") or 0)}/100</div>'
                 if riskiest.get("ip")
                 else ""
             ),
@@ -222,7 +247,14 @@ def _risk_ips_section(summary: Dict) -> str:
     body = []
     for row in rows:
         score = int(row.get("risk_score") or 0)
-        color = "#dc2626" if score >= 80 else "#f97316" if score >= 60 else "#eab308" if score >= 30 else "#3b82f6"
+        if score >= 80:
+            color = "#dc2626"
+        elif score >= 60:
+            color = "#f97316"
+        elif score >= 30:
+            color = "#eab308"
+        else:
+            color = "#3b82f6"
         body.append(
             f'<tr><td class="ip">{html.escape(str(row.get("ip")))}</td>'
             f"<td>{score}/100</td>"

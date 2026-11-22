@@ -145,7 +145,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--honeypot-ips",
         default=os.environ.get("HONEYPOT_IPS", ""),
-        help="Comma separated honeypot destination IPs; sources targeting them get +20 risk (default: HONEYPOT_IPS or none).",
+        help="Comma separated honeypot destination IPs;"
+        "sources targeting them get +20 risk (default: HONEYPOT_IPS or none).",
     )
     parser.add_argument(
         "--db", default=None, help="SQLite path (default: DB_PATH from .env)."

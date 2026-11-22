@@ -70,7 +70,11 @@ _FAKE_WP_LOGIN = """<!DOCTYPE html>
     <input type="text" name="log" id="user_login" value="">
     <label for="user_pass">Password</label>
     <input type="password" name="pwd" id="user_pass" value="">
-    <input type="submit" name="wp-submit" id="wp-submit" class="button button-primary" value="Log In">
+     <input type="submit"
+       name="wp-submit"
+       id="wp-submit"
+       class="button button-primary"
+       value="Log In">
     <input type="hidden" name="redirect_to" value="/wp-admin/">
 </form>
 </body>
@@ -138,7 +142,12 @@ _FAKE_CONFIG_JSON = """{
 """
 
 _FAKE_XMLRPC = """<?xml version="1.0"?>
-<methodResponse><fault><faultCode>-32600</faultCode><faultString>Invalid request</faultString></fault></methodResponse>
+<methodResponse>
+  <fault>
+    <faultCode>-32600</faultCode>
+    <faultString>Invalid request</faultString>
+  </fault>
+</methodResponse>
 """
 
 _FAKE_CGI = """Content-type: text/plain
