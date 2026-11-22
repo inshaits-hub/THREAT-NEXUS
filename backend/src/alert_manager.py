@@ -196,7 +196,7 @@ def process_alerts(
         groups.setdefault((item["ip"], item["type"]), []).append(item)
 
     alerts: List[Dict] = []
-    for (_ip, _kind), items in groups.items():
+    for items in groups.values():
         items.sort(
             key=lambda entry: (
                 entry["_dt"] is None,
