@@ -87,10 +87,22 @@ def _decay_lambda() -> float:
     return max(0.0, value)
 
 
+INSECURE_SECRET_KEYS = {"", "dev-secret", "change-me-in-production"}
+
+
 def create_app(db_path=None, reports_dir=None) -> Flask:
-    app = Flask(__name__)
+    """Create and configure the Flask application."""
+    app = Flask(__name__)  # pylint: disable=redefined-outer-name
+    secret = os.environ.get("SECRET_KEY", "dev-secret")
+    if (
+        os.environ.get("FLASK_ENV") == "production"
+        and secret.strip() in INSECURE_SECRET_KEYS
+    ):
+        raise RuntimeError(
+            "SECRET_KEY must be set to a real value when FLASK_ENV=production"
+        )
     app.config.update(
-        SECRET_KEY=os.environ.get("SECRET_KEY", "dev-secret"),
+        SECRET_KEY=secret,
         MAX_CONTENT_LENGTH=int(os.environ.get("MAX_UPLOAD_MB", "16")) * 1024 * 1024,
         THRESHOLD=int(os.environ.get("ANALYSIS_THRESHOLD", "5")),
         # Hourly decay of risk scores (default: 24h half-life); 0 disables decay.
@@ -169,7 +181,7 @@ def create_app(db_path=None, reports_dir=None) -> Flask:
 
     # ---------------------------------------------------------- SSH decoy
     # Opt-in trap (SSH_DECOY_ENABLED=1): records a hit, never executes.
-    def _ssh_decoy_hit(ip: str, port: int) -> None:
+    def _ssh_decoy_hit(ip: str, port: int) -> None:  # pylint: disable=redefined-outer-name
         honeypot.record_honeypot_hit(
             ip=ip,
             details=f"TCP connection to SSH decoy port {port} from {ip}",
