@@ -350,7 +350,7 @@ are collapsed into a single failure before counting.
 
 ```bash
 cd backend
-python -m pytest            # 159 tests
+python -m pytest            # 260 tests
 python -m pytest tests/test_threats.py -k brute -v
 ```
 

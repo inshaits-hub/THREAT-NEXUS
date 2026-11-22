@@ -23,7 +23,7 @@ from __future__ import annotations
 import ipaddress
 import re
 from typing import Dict, List, Optional
-
+PLACEHOLDER = "<ATTACKER_IP>"
 try:  # package import
     from .alert_manager import normalize_severity, title_for
 except ImportError:  # script import (``python src/main.py``)
@@ -35,8 +35,9 @@ __all__ = [
     "remediate",
     "build_playbook",
     "generate_copilot_output",
+    "TEMPLATES",
+    "PLACEHOLDER",
 ]
-
 #: Each rule type gets reasoning + playbook steps + command *templates*.
 #: ``{ip}`` is filled only after validation (see ``_safe_ip``).
 _RULES = {
@@ -193,8 +194,19 @@ _RULES = {
 }
 
 
+# Backward compatibility for older tests and integrations.
+TEMPLATES = _RULES
+
+_LEGACY_TYPE_MAP = {
+    "brute_force": "SSH_BRUTE_FORCE",
+    "ddos": "TRAFFIC_SPIKE",
+}
+
+
 def _rule_for(threat_type) -> dict:
-    return _RULES.get(str(threat_type or "UNKNOWN"), _RULES["UNKNOWN"])
+    threat_type = str(threat_type or "UNKNOWN")
+    threat_type = _LEGACY_TYPE_MAP.get(threat_type.lower(), threat_type)
+    return _RULES.get(threat_type, _RULES["UNKNOWN"])
 
 
 def _safe_ip(value) -> Optional[str]:

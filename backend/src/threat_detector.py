@@ -183,9 +183,9 @@ def _detect_brute_force(timeline, threshold: int) -> List[Dict]:
                 start += 1
             count = end - start + 1
             if count > threshold and start > last_alerted:
-                segment = items[start : end + 1]
+                segment = items[start:end + 1]
                 users = Counter(
-                    (event.get("user") or "?") for _moment, event in segment
+                    (event.get("user") or "?") for _, event in segment
                 )
                 top_users = ", ".join(name for name, _ in users.most_common(3))
                 severity = (
@@ -213,7 +213,7 @@ def _detect_brute_force(timeline, threshold: int) -> List[Dict]:
     for event, moment in timeline:
         if event.get("action") != "ssh_login_success" or not event.get("ip"):
             continue
-        for _first, last, count in bursts_by_ip.get(event["ip"], []):
+        for _, last, count in bursts_by_ip.get(event["ip"], []):
             if last <= moment <= last + window:
                 threats.append(
                     _threat(
@@ -279,11 +279,11 @@ def _detect_anomalies(timeline, spike_threshold: int) -> List[Dict]:
                     "TRAFFIC_SPIKE",
                     ip,
                     severity,
-                        f"{count} HTTP requests in a single minute from {ip} "
-                        f"(threshold: {spike_threshold}/min)",
-                        minute,
-                        attempts=count,
-                    )
+                    f"{count} HTTP requests in a single minute from {ip} "
+                    f"(threshold: {spike_threshold}/min)",
+                    minute,
+                    attempts=count,
+                )
             )
 
     for event, moment in timeline:
@@ -346,7 +346,7 @@ def _detect_scans(timeline, web_threshold: int, port_threshold: int) -> List[Dic
         for end in range(len(items)):
             while items[end][0] - items[start][0] > window:
                 start += 1
-            distinct = len({event.get("path") for _m, event in items[start : end + 1]})
+            distinct = len({event.get("path") for _, event in items[start:end + 1]})
             if distinct > web_threshold and start > last_alerted:
                 severity = "HIGH" if distinct > web_threshold * 3 else "MEDIUM"
                 threats.append(
@@ -370,7 +370,7 @@ def _detect_scans(timeline, web_threshold: int, port_threshold: int) -> List[Dic
             while items[end][0] - items[start][0] > window:
                 start += 1
             distinct = len(
-                {event.get("dst_port") for _m, event in items[start : end + 1]}
+                {event.get("dst_port") for _, event in items[start:end + 1]}
             )
             if distinct > port_threshold and start > last_alerted:
                 threats.append(
