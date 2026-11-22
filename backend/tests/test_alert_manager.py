@@ -209,4 +209,5 @@ def test_alert_exposes_frontend_payload_contract():
             "span_seconds": 0,
         },
         "summary": "failed login activity",
+        "risk_factors": [],
     }
