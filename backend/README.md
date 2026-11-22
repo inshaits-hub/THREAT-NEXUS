@@ -1,7 +1,7 @@
 # THREAT-NEXUS — Backend
 
 Production-ready backend for the CS senior project. It ingests raw log files,
-normalizes them with regex, runs a heuristic threat engine over the events,
+normalizes them with' regex, runs a heuristic threat engine over the events,
 prioritizes the resulting alerts, stores everything in SQLite and serves both
 a REST API and a standalone CLI that writes executive HTML/JSON reports.
 
@@ -43,6 +43,10 @@ backend/
 ├── tests/
 │   ├── conftest.py         # shared fixtures (sample logs, Flask test client)
 │   ├── test_parser.py      # regex parsing unit tests
+│   ├── test_log_parser_basics.py # small parser edge-case tests
+│   ├── LOG_PARSER_TESTS.md # short parser test guide
+│   ├── test_alert_manager.py # focused alert prioritization and payload tests
+│   ├── ALERT_MANAGER_TESTS.md # alert-manager test plan and run instructions
 │   ├── test_threats.py     # threat rules, auth analytics, alert handling
 │   ├── test_reports.py     # HTML/JSON report tests
 │   ├── test_api.py         # REST API integration tests
@@ -350,9 +354,16 @@ are collapsed into a single failure before counting.
 
 ```bash
 cd backend
-python -m pytest            # 159 tests
+python -m pytest            # full backend suite
+python -m pytest tests/test_alert_manager.py -v
+python -m pytest tests/test_log_parser_basics.py -v
 python -m pytest tests/test_threats.py -k brute -v
 ```
+
+The short parser edge-case guide is in
+[`tests/LOG_PARSER_TESTS.md`](tests/LOG_PARSER_TESTS.md).
+The alert prioritization, deduplication and payload cases are documented in
+[`tests/ALERT_MANAGER_TESTS.md`](tests/ALERT_MANAGER_TESTS.md).
 
 Coverage: regex parsing (all three formats + malformed input), brute-force
 threshold/window boundaries, SQLi/XSS/traversal payloads, spike/off-hour/scan
