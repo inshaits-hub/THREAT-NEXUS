@@ -103,19 +103,59 @@ Set `baseUrl` and `useMock` in the same object to override both.
 
 ```text
 THREAT-NEXUS/
-├── backend/                # see backend/README.md for the full map
-│   ├── src/                # parser, analyzers, threat engine, alerts, reports, API, CLI
-│   ├── tests/              # pytest suite
-│   ├── samples/demo.log    # mixed auth.log + nginx + syslog capture
-│   ├── scripts/            # demo database builder
-│   ├── Dockerfile          # gunicorn image, non-root, HEALTHCHECK
-│   └── run_cli.sh / run_web.sh
-├── frontend/               # dashboard UI (static, no build step)
-├── deploy/nginx.conf       # serves frontend/ and proxies /api/ to the API
-├── docker-compose.yml      # full stack: api + web
-├── .env.example            # WEB_PORT, SECRET_KEY for the compose stack
-├── index.html              # landing page + API contract
-└── .gitignore
+├── .env.example
+├── .gitignore
+├── README.md
+├── index.html
+├── docker-compose.yml
+├── .github/
+│   ├── workflows/pipeline.yml          # asli CI/CD pipeline
+│   └── workflow/fareeha-ci.yml         # singular folder, GitHub nahi padhta
+├── deploy/
+│   └── nginx.conf
+├── src/
+│   └── copilot.py                      # duplicate copilot.py (root par)
+├── backend/
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── .dockerignore / .env.example / .gitignore
+│   ├── pytest.ini                      # testpaths = tests
+│   ├── requirements.txt
+│   ├── requirements-docker.txt
+│   ├── run_cli.sh / run_web.sh
+│   ├── README.md
+│   ├── test_copilot.py                 # stray, tests/ ke bahar
+│   ├── docs/superpowers/specs/2026-10-07-threatnexus-backend-design.md
+│   ├── reports/.gitkeep
+│   ├── samples/demo.log
+│   ├── scripts/build_demo_db.py
+│   ├── src/
+│   │   ├── __init__.py, app.py, main.py
+│   │   ├── log_parser.py, auth_analyzer.py, threat_detector.py
+│   │   ├── alert_manager.py, scoring.py, copilot.py
+│   │   ├── report_generator.py, database.py
+│   │   └── honeypot.py, ssh_decoy.py
+│   ├── tests/
+│   │   ├── conftest.py
+│   │   └── test_api, test_cli, test_copilot, test_honeypot_flask,
+│   │       test_parser, test_reports, test_risk_scoring, test_scoring,
+│   │       test_socketio, test_ssh_decoy, test_streaming, test_threats (.py)
+│   └── honeypot backend/               # naam mein space, purana alag project
+│       ├── README.md, requirements.txt
+│       ├── honeypot/ (app.py, decoys.py, honeypot.py, __init__.py)
+│       └── tests/test_honeypot.py
+└── frontend/
+    ├── index.html, threats.html, threat-detail.html,
+    │   log-events.html, upload.html, README.md
+    ├── css/style.css
+    ├── assets/ (icons/favicon.svg, images/)
+    └── js/
+        ├── config.js, head.js, tailwind-config.js
+        ├── core/      dom.js, format.js, pagination.js
+        ├── ui/        layout.js, severity.js
+        ├── pages/     overview, threats, threat-detail, log-events, upload (.js)
+        └── services/  api, http-client, live, download, report-builder,
+                       mock-api, mock-data (.js)
 ```
 
 ## API contract
